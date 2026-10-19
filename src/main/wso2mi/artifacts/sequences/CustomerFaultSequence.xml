@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="CustomerFaultSequence" xmlns="http://ws.apache.org/ns/synapse">
+    <payloadFactory media-type="json">
+        <format>{"status":"ERROR","code":"500","message":"An unexpected integration fault occurred."}</format>
+        <args/>
+    </payloadFactory>
+    <property name="HTTP_SC" scope="axis2" value="500"/>
+    <property name="messageType" scope="axis2" value="application/json"/>
+    <respond/>
+</sequence>

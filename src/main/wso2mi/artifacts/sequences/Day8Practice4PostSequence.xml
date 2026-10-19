@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day8Practice4PostSequence" xmlns="http://ws.apache.org/ns/synapse">
+
+    <log level="custom">
+        <property name="STAGE" value="TIMEOUT_RETRY_POST_START"/>
+    </log>
+
+    <property expression="get-property('transport', 'Idempotency-Key')"
+              name="idempotencyKey" scope="default" type="STRING"/>
+
+    <!-- Step 1: Reject if no Idempotency-Key -->
+    <filter xpath="string-length(normalize-space(get-property('idempotencyKey'))) = 0">
+        <then>
+            <log level="custom">
+                <property name="STAGE" value="MISSING_IDEMPOTENCY_KEY"/>
+            </log>
+            <payloadFactory media-type="json">
+                <format>
+                { "status": "ERROR", "code": "400", "message": "Idempotency-Key header is required." }
+                </format>
+            </payloadFactory>
+            <property name="HTTP_SC"     scope="axis2" value="400"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </then>
+        <else>
+
+            <log level="custom">
+                <property name="STAGE" value="IDEMPOTENCY_KEY_RECEIVED"/>
+                <property expression="get-property('idempotencyKey')" name="IdempotencyKey"/>
+            </log>
+
+            <!-- FIX: Reset existingEntry before every lookup -->
+            <!-- Without this, old value from previous request stays in memory -->
+            <property name="existingEntry" scope="default" value="" action="set"/>
+
+            <!-- Step 2: Check DB if this key was already processed -->
+            <dblookup>
+                <connection>
+                    <pool>
+                        <dsName>jdbc/CustomerMySQLDS</dsName>
+                    </pool>
+                </connection>
+                <statement>
+                    <sql><![CDATA[
+                        SELECT idem_key
+                        FROM idempotency_keys
+                        WHERE idem_key = ?
+                    ]]></sql>
+                    <parameter expression="get-property('idempotencyKey')" type="VARCHAR"/>
+                    <result name="existingEntry" column="idem_key"/>
+                </statement>
+            </dblookup>
+
+            <log level="custom">
+                <property name="STAGE" value="DB_IDEMPOTENCY_CHECK"/>
+                <property expression="get-property('existingEntry')"  name="ExistingEntry"/>
+                <property expression="get-property('idempotencyKey')" name="Key"/>
+            </log>
+
+            <!-- Step 3: If key exists → replay, do NOT call backend -->
+            <filter xpath="string-length(normalize-space(get-property('existingEntry'))) > 0">
+                <then>
+                    <log level="custom">
+                        <property name="STAGE"  value="DUPLICATE_DETECTED"/>
+                        <property name="Action" value="Replaying 201 - backend NOT called"/>
+                        <property expression="get-property('idempotencyKey')" name="Key"/>
+                    </log>
+                    <payloadFactory media-type="json">
+                        <format>
+                        { "status": "SUCCESS", "code": "201", "message": "Order already created (idempotent replay).", "idempotencyKey": "$1" }
+                        </format>
+                        <args><arg evaluator="xml" expression="get-property('idempotencyKey')"/></args>
+                    </payloadFactory>
+                    <property name="HTTP_SC"     scope="axis2" value="201"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </then>
+
+                <!-- Step 4: New key → call backend then store in DB -->
+                <else>
+                    <log level="custom">
+                        <property name="STAGE"  value="NEW_KEY_CALLING_BACKEND"/>
+                        <property name="Reason" value="POST non-idempotent - no automatic retry"/>
+                        <property expression="get-property('idempotencyKey')" name="Key"/>
+                    </log>
+
+                    <property name="REST_URL_POSTFIX" scope="axis2" action="remove"/>
+                    <property name="HTTP_METHOD"      scope="axis2" value="POST"/>
+                    <property name="Host"             scope="transport" action="remove"/>
+
+                    <property expression="get-property('idempotencyKey')"
+                              name="savedKey" scope="default" type="STRING"/>
+
+                    <call>
+                        <endpoint key="Day8Practice4Endpoint"/>
+                    </call>
+
+                    <log level="custom">
+                        <property name="STAGE" value="BACKEND_SUCCEEDED_POST"/>
+                        <property expression="get-property('savedKey')" name="SavedKey"/>
+                    </log>
+
+                    <!-- Step 5: Store key in DB -->
+                    <dbreport>
+                        <connection>
+                            <pool>
+                                <dsName>jdbc/CustomerMySQLDS</dsName>
+                            </pool>
+                        </connection>
+                        <statement>
+                            <sql><![CDATA[
+                                INSERT IGNORE INTO idempotency_keys (idem_key)
+                                VALUES (?)
+                            ]]></sql>
+                            <parameter expression="get-property('savedKey')" type="VARCHAR"/>
+                        </statement>
+                    </dbreport>
+
+                    <log level="custom">
+                        <property name="STAGE" value="KEY_STORED_IN_DB"/>
+                        <property expression="get-property('savedKey')" name="Key"/>
+                    </log>
+
+                    <payloadFactory media-type="json">
+                        <format>
+                        { "status": "SUCCESS", "code": "201", "message": "Order created.", "idempotencyKey": "$1" }
+                        </format>
+                        <args><arg evaluator="xml" expression="get-property('savedKey')"/></args>
+                    </payloadFactory>
+                    <property name="HTTP_SC"     scope="axis2" value="201"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </else>
+            </filter>
+
+        </else>
+    </filter>
+
+</sequence>

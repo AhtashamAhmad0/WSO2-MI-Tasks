@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<datasource>
+    <name>Customerrouting</name>
+    <description>MySQL DataSource for Day 8 Practice</description>
+    <jndiConfig>
+        <name>jdbc/Customerrouting</name>
+    </jndiConfig>
+    <definition type="RDBMS">
+        <configuration>
+            <url>jdbc:mysql://localhost:3306/training_db?useSSL=false&amp;allowPublicKeyRetrieval=true</url>
+            <username>root</username>
+            <password>1234</password> <!-- Update with your DB password -->
+            <driverClassName>com.mysql.cj.jdbc.Driver</driverClassName>
+            <maxActive>50</maxActive>
+            <maxWait>60000</maxWait>
+            <testOnBorrow>true</testOnBorrow>
+            <validationQuery>SELECT 1</validationQuery>
+        </configuration>
+    </definition>
+</datasource>

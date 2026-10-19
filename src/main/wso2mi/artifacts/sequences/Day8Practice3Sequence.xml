@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day8Practice3Sequence" xmlns="http://ws.apache.org/ns/synapse">
+
+    <log level="custom">
+        <property name="STAGE" value="REGION_ROUTING_START"/>
+    </log>
+
+    <!-- Step 1: Accept a region -->
+    <property expression="get-property('query.param.region')" name="region" scope="default" type="STRING"/>
+
+    <log level="custom">
+        <property name="STAGE" value="REGION_RECEIVED"/>
+        <property expression="get-property('region')" name="Region"/>
+    </log>
+
+    <!-- Step 2: Store the region in a property (already done above as 'region') -->
+
+    <property name="REST_URL_POSTFIX" scope="axis2" action="remove"/>
+    <property name="HTTP_METHOD" scope="axis2" value="GET"/>
+    <property name="Host" scope="transport" action="remove"/>
+    <property name="Accept-Encoding" scope="transport" value="identity"/>
+    <property name="Accept" scope="transport" value="application/json"/>
+
+    <!-- Step 3 & 4: Route PK to one backend, UAE to another, reject anything else -->
+    <filter regex="^PK$" source="get-property('region')">
+        <then>
+            <log level="custom">
+                <property name="STAGE" value="ROUTING_TO_PK_BACKEND"/>
+            </log>
+            <call>
+                <endpoint key="Day8Practice3PKEndpoint"/>
+            </call>
+            <property name="Content-Encoding" scope="transport" action="remove"/>
+            <property expression="get-property('axis2', 'HTTP_SC')" name="backendStatusCode" scope="default" type="STRING"/>
+
+            <log level="custom">
+                <property name="STAGE" value="PK_BACKEND_RESPONSE"/>
+                <property expression="get-property('backendStatusCode')" name="BackendStatusCode"/>
+            </log>
+
+            <filter xpath="get-property('backendStatusCode') = '200'">
+                <then>
+                    <property expression="json-eval($.name)" name="respName" scope="default" type="STRING"/>
+                    <payloadFactory media-type="json">
+                        <format>
+                        { "status": "SUCCESS", "region": "PK", "backend": "Day8Practice3PKEndpoint", "data": { "name": "$1" } }
+                        </format>
+                        <args><arg evaluator="xml" expression="get-property('respName')"/></args>
+                    </payloadFactory>
+                    <property name="HTTP_SC" scope="axis2" value="200"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </then>
+                <else>
+                    <payloadFactory media-type="json">
+                        <format>
+                        { "status": "ERROR", "code": "502", "region": "PK", "message": "PK backend failed (HTTP $1)." }
+                        </format>
+                        <args><arg evaluator="xml" expression="get-property('backendStatusCode')"/></args>
+                    </payloadFactory>
+                    <property name="HTTP_SC" scope="axis2" value="502"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </else>
+            </filter>
+        </then>
+        <else>
+            <filter regex="^UAE$" source="get-property('region')">
+                <then>
+                    <log level="custom">
+                        <property name="STAGE" value="ROUTING_TO_UAE_BACKEND"/>
+                    </log>
+                    <call>
+                        <endpoint key="Day8Practice3UAEEndpoint"/>
+                    </call>
+                    <property name="Content-Encoding" scope="transport" action="remove"/>
+                    <property expression="get-property('axis2', 'HTTP_SC')" name="backendStatusCode" scope="default" type="STRING"/>
+
+                    <log level="custom">
+                        <property name="STAGE" value="UAE_BACKEND_RESPONSE"/>
+                        <property expression="get-property('backendStatusCode')" name="BackendStatusCode"/>
+                    </log>
+
+                    <filter xpath="get-property('backendStatusCode') = '200'">
+                        <then>
+                            <property expression="json-eval($.name)" name="respName" scope="default" type="STRING"/>
+                            <payloadFactory media-type="json">
+                                <format>
+                                { "status": "SUCCESS", "region": "UAE", "backend": "Day8Practice3UAEEndpoint", "data": { "name": "$1" } }
+                                </format>
+                                <args><arg evaluator="xml" expression="get-property('respName')"/></args>
+                            </payloadFactory>
+                            <property name="HTTP_SC" scope="axis2" value="200"/>
+                            <property name="messageType" scope="axis2" value="application/json"/>
+                            <respond/>
+                        </then>
+                        <else>
+                            <payloadFactory media-type="json">
+                                <format>
+                                { "status": "ERROR", "code": "502", "region": "UAE", "message": "UAE backend failed (HTTP $1)." }
+                                </format>
+                                <args><arg evaluator="xml" expression="get-property('backendStatusCode')"/></args>
+                            </payloadFactory>
+                            <property name="HTTP_SC" scope="axis2" value="502"/>
+                            <property name="messageType" scope="axis2" value="application/json"/>
+                            <respond/>
+                        </else>
+                    </filter>
+                </then>
+                <else>
+                    <!-- Unsupported region -->
+                    <log level="custom">
+                        <property name="STAGE" value="UNSUPPORTED_REGION"/>
+                        <property expression="get-property('region')" name="Region"/>
+                    </log>
+                    <payloadFactory media-type="json">
+                        <format>
+                        { "status": "ERROR", "code": "400", "message": "Unsupported region. Supported values: PK, UAE." }
+                        </format>
+                    </payloadFactory>
+                    <property name="HTTP_SC" scope="axis2" value="400"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </else>
+            </filter>
+        </else>
+    </filter>
+
+</sequence>

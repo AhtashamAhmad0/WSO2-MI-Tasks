@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="CustomerGetSequence" xmlns="http://ws.apache.org/ns/synapse">
+    <sequence key="CustomerCommonLogging"/>
+    <property expression="get-property('uri.var.id')" name="customerId" scope="default" type="STRING"/>
+
+    <!-- Validate ID Format -->
+    <filter regex="^[0-9]+$" source="get-property('customerId')">
+        <then>
+            <dblookup>
+                <connection>
+                    <pool>
+                        <dsName>jdbc/CustomerMySQLDS</dsName>
+                    </pool>
+                </connection>
+                <statement>
+                    <sql><![CDATA[SELECT full_name, email, account_status, created_at FROM customers WHERE customer_id = ?]]></sql>
+                    <parameter expression="get-property('customerId')" type="INTEGER"/>
+                    <result name="db_fullName" column="full_name"/>
+                    <result name="db_email" column="email"/>
+                    <result name="db_status" column="account_status"/>
+                    <result name="db_created" column="created_at"/>
+                </statement>
+            </dblookup>
+
+            <filter xpath="string-length(normalize-space(get-property('db_fullName'))) > 0">
+                <then>
+                    <payloadFactory media-type="json">
+                        <format>
+                        {
+                            "status": "SUCCESS",
+                            "code": "200",
+                            "correlationId": "$1",
+                            "data": {
+                                "customerId": "$2",
+                                "name": "$3",
+                                "email": "$4",
+                                "accountStatus": "$5",
+                                "createdAt": "$6"
+                            }
+                        }
+                        </format>
+                        <args>
+                            <arg evaluator="xml" expression="get-property('correlationId')"/>
+                            <arg evaluator="xml" expression="get-property('customerId')"/>
+                            <arg evaluator="xml" expression="get-property('db_fullName')"/>
+                            <arg evaluator="xml" expression="get-property('db_email')"/>
+                            <arg evaluator="xml" expression="get-property('db_status')"/>
+                            <arg evaluator="xml" expression="get-property('db_created')"/>
+                        </args>
+                    </payloadFactory>
+                    <property name="HTTP_SC" scope="axis2" value="200"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </then>
+                <else>
+                    <payloadFactory media-type="json">
+                        <format>{"status":"ERROR","code":"404","correlationId":"$1","message":"Customer with ID $2 not found."}</format>
+                        <args>
+                            <arg evaluator="xml" expression="get-property('correlationId')"/>
+                            <arg evaluator="xml" expression="get-property('customerId')"/>
+                        </args>
+                    </payloadFactory>
+                    <property name="HTTP_SC" scope="axis2" value="404"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </else>
+            </filter>
+        </then>
+        <else>
+            <payloadFactory media-type="json">
+                <format>{"status":"ERROR","code":"400","correlationId":"$1","message":"Invalid Customer ID format. Must be numeric."}</format>
+                <args><arg evaluator="xml" expression="get-property('correlationId')"/></args>
+            </payloadFactory>
+            <property name="HTTP_SC" scope="axis2" value="400"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </else>
+    </filter>
+</sequence>

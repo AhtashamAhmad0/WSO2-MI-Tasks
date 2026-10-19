@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="CustomerDeleteSequence" xmlns="http://ws.apache.org/ns/synapse">
+    <sequence key="CustomerCommonLogging"/>
+    <property expression="get-property('uri.var.id')" name="customerId" scope="default" type="STRING"/>
+
+    <!-- 1. Check if Customer Exists -->
+    <dblookup>
+        <connection>
+            <pool>
+                <dsName>jdbc/CustomerMySQLDS</dsName>
+            </pool>
+        </connection>
+        <statement>
+            <sql><![CDATA[SELECT full_name FROM customers WHERE customer_id = ?]]></sql>
+            <parameter expression="get-property('customerId')" type="INTEGER"/>
+            <result name="checkName" column="full_name"/>
+        </statement>
+    </dblookup>
+
+    <filter xpath="string-length(normalize-space(get-property('checkName'))) > 0">
+        <then>
+            <!-- 2. Perform Delete -->
+            <dbreport>
+                <connection>
+                    <pool>
+                        <dsName>jdbc/CustomerMySQLDS</dsName>
+                    </pool>
+                </connection>
+                <statement>
+                    <sql><![CDATA[DELETE FROM customers WHERE customer_id = ?]]></sql>
+                    <parameter expression="get-property('customerId')" type="INTEGER"/>
+                </statement>
+            </dbreport>
+
+            <payloadFactory media-type="json">
+                <format>{"status":"SUCCESS","code":"200","correlationId":"$1","message":"Customer $2 deleted successfully."}</format>
+                <args>
+                    <arg evaluator="xml" expression="get-property('correlationId')"/>
+                    <arg evaluator="xml" expression="get-property('customerId')"/>
+                </args>
+            </payloadFactory>
+            <property name="HTTP_SC" scope="axis2" value="200"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </then>
+        <else>
+            <payloadFactory media-type="json">
+                <format>{"status":"ERROR","code":"404","correlationId":"$1","message":"Cannot delete. Customer ID $2 does not exist."}</format>
+                <args>
+                    <arg evaluator="xml" expression="get-property('correlationId')"/>
+                    <arg evaluator="xml" expression="get-property('customerId')"/>
+                </args>
+            </payloadFactory>
+            <property name="HTTP_SC" scope="axis2" value="404"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </else>
+    </filter>
+</sequence>

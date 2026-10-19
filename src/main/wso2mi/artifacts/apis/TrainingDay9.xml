@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<api name="TrainingDay9" context="/day9" xmlns="http://ws.apache.org/ns/synapse">
+    <resource methods="GET" uri-template="/practice2/https-backend">
+        <inSequence>
+            <sequence key="Day9Practice2Sequence"/>
+        </inSequence>
+        <outSequence/>
+        <faultSequence>
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "status": "ERROR",
+                    "code": "500",
+                    "message": "Internal processing error on HTTPS backend call."
+                }
+                </format>
+                <args/>
+            </payloadFactory>
+            <property name="HTTP_SC" scope="axis2" value="500"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </faultSequence>
+    </resource>
+
+
+    <resource methods="GET" uri-template="/p3/protected/data">
+    <inSequence>
+        <sequence key="Day9Practice3Sequence"/>
+    </inSequence>
+    <faultSequence>
+        <sequence key="Day9FaultSequence"/>
+    </faultSequence>
+</resource>
+ 
+<resource methods="DELETE" uri-template="/p3/protected/data">
+    <inSequence>
+        <sequence key="Day9Practice3Sequence"/>
+    </inSequence>
+    <faultSequence>
+        <sequence key="Day9FaultSequence"/>
+    </faultSequence>
+</resource>
+ 
+
+      <!-- Practice 4 - DB two-factor validation + environment routing -->
+    <resource methods="POST" uri-template="/p4/route-user">
+        <inSequence>
+            <sequence key="Day9Practice4Sequence"/>
+        </inSequence>
+        <faultSequence>
+            <sequence key="Day9FaultSequence"/>
+        </faultSequence>
+    </resource>
+
+
+        <!-- Practice 5 - secure logging -->
+    <resource methods="POST" uri-template="/p5/sec-log">
+        <inSequence>
+            <sequence key="Day9Practice5Sequence"/>
+        </inSequence>
+        <faultSequence>
+            <sequence key="Day9FaultSequence"/>
+        </faultSequence>
+    </resource>
+</api>

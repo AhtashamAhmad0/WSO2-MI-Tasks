@@ -1,0 +1,474 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day8Practice5Sequence"
+          xmlns="http://ws.apache.org/ns/synapse">
+
+    <!-- ========================================================= -->
+    <!-- REQUIREMENT 1: GENERATE ONE CORRELATION ID AT ENTRY       -->
+    <!-- ========================================================= -->
+
+    <property
+        expression="get-property('transport', 'X-Correlation-ID')"
+        name="correlationId"
+        scope="default"
+        type="STRING"/>
+
+    <filter xpath="string-length(normalize-space(get-property('correlationId'))) = 0">
+        <then>
+            <property
+                expression="get-property('MessageID')"
+                name="correlationId"
+                scope="default"
+                type="STRING"/>
+        </then>
+    </filter>
+
+    <!-- REQUIREMENT 2: LOG STAGE — ENTRY -->
+    <log level="custom">
+        <property name="STAGE"            value="TRACE_START"/>
+        <property name="STAGE_NUMBER"     value="1/6"/>
+        <property name="STAGE_NAME"       value="ENTRY"/>
+        <property name="Description"      value="Request received. Correlation ID assigned."/>
+        <property expression="get-property('correlationId')" name="CorrelationId"/>
+        <property expression="get-property('uri.var.id')"    name="IncomingCustomerId"/>
+    </log>
+
+
+    <!-- ========================================================= -->
+    <!-- GET CUSTOMER ID                                           -->
+    <!-- ========================================================= -->
+
+    <property
+        expression="get-property('uri.var.id')"
+        name="customerId"
+        scope="default"
+        type="STRING"/>
+
+
+    <!-- ========================================================= -->
+    <!-- REQUIREMENT 2: LOG STAGE — VALIDATION                     -->
+    <!-- ========================================================= -->
+
+    <log level="custom">
+        <property name="STAGE"        value="STAGE_VALIDATION_START"/>
+        <property name="STAGE_NUMBER" value="2/6"/>
+        <property name="STAGE_NAME"   value="VALIDATION"/>
+        <property name="Description"  value="Checking if customer ID is a valid number."/>
+        <property expression="get-property('correlationId')" name="CorrelationId"/>
+        <property expression="get-property('customerId')"    name="CustomerId"/>
+    </log>
+
+    <filter regex="^[0-9]+$"
+            source="get-property('customerId')">
+
+        <then>
+
+            <log level="custom">
+                <property name="STAGE"        value="STAGE_VALIDATION_PASSED"/>
+                <property name="STAGE_NUMBER" value="2/6"/>
+                <property name="STAGE_NAME"   value="VALIDATION"/>
+                <property name="Result"       value="PASSED"/>
+                <property name="Description"  value="Customer ID is numeric. Proceeding to DB lookup."/>
+                <property expression="get-property('correlationId')" name="CorrelationId"/>
+                <property expression="get-property('customerId')"    name="CustomerId"/>
+            </log>
+
+
+            <!-- ================================================= -->
+            <!-- REQUIREMENT 2: LOG STAGE — DATABASE LOOKUP        -->
+            <!-- ================================================= -->
+
+            <log level="custom">
+                <property name="STAGE"        value="STAGE_DB_LOOKUP_START"/>
+                <property name="STAGE_NUMBER" value="3/6"/>
+                <property name="STAGE_NAME"   value="DATABASE"/>
+                <property name="Description"  value="Querying customers table for this customer ID."/>
+                <property expression="get-property('correlationId')" name="CorrelationId"/>
+                <property expression="get-property('customerId')"    name="CustomerId"/>
+            </log>
+
+            <dblookup>
+                <connection>
+                    <pool>
+                        <dsName>jdbc/CustomerMySQLDS</dsName>
+                    </pool>
+                </connection>
+                <statement>
+                    <sql><![CDATA[
+                        SELECT
+                            full_name,
+                            email,
+                            account_status
+                        FROM customers
+                        WHERE customer_id = ?
+                    ]]></sql>
+                    <parameter
+                        expression="get-property('customerId')"
+                        type="INTEGER"/>
+                    <result name="db_fullName"      column="full_name"/>
+                    <result name="db_email"         column="email"/>
+                    <result name="db_accountStatus" column="account_status"/>
+                </statement>
+            </dblookup>
+
+            <log level="custom">
+                <property name="STAGE"        value="STAGE_DB_LOOKUP_RESULT"/>
+                <property name="STAGE_NUMBER" value="3/6"/>
+                <property name="STAGE_NAME"   value="DATABASE"/>
+                <property name="Description"  value="DB query executed. Checking if record was found."/>
+                <property expression="get-property('correlationId')"    name="CorrelationId"/>
+                <property expression="get-property('db_fullName')"      name="DbFullName"/>
+                <property expression="get-property('db_email')"         name="DbEmail"/>
+                <property expression="get-property('db_accountStatus')" name="DbAccountStatus"/>
+            </log>
+
+
+            <!-- ================================================= -->
+            <!-- CUSTOMER EXISTS CHECK                             -->
+            <!-- ================================================= -->
+
+            <filter xpath="string-length(normalize-space(get-property('db_fullName'))) &gt; 0">
+
+                <then>
+
+                    <!-- ========================================= -->
+                    <!-- REQUIREMENT 2: LOG STAGE — ROUTE DECISION -->
+                    <!-- ========================================= -->
+
+                    <property
+                        expression="get-property('customerId') mod 2"
+                        name="routeKey"
+                        scope="default"
+                        type="STRING"/>
+
+                    <filter xpath="get-property('routeKey') = '0'">
+                        <then>
+                            <property name="selectedRoute" value="PRIMARY"   scope="default" type="STRING"/>
+                        </then>
+                        <else>
+                            <property name="selectedRoute" value="SECONDARY" scope="default" type="STRING"/>
+                        </else>
+                    </filter>
+
+                    <log level="custom">
+                        <property name="STAGE"        value="STAGE_ROUTE_DECISION"/>
+                        <property name="STAGE_NUMBER" value="4/6"/>
+                        <property name="STAGE_NAME"   value="ROUTING"/>
+                        <property name="Description"  value="Even customer ID goes PRIMARY, odd goes SECONDARY."/>
+                        <property name="Rule"         value="customerId mod 2 = 0 -> PRIMARY, else SECONDARY"/>
+                        <property expression="get-property('correlationId')"  name="CorrelationId"/>
+                        <property expression="get-property('customerId')"     name="CustomerId"/>
+                        <property expression="get-property('routeKey')"       name="RouteKey"/>
+                        <property expression="get-property('selectedRoute')"  name="SelectedRoute"/>
+                    </log>
+
+
+                    <!-- ========================================= -->
+                    <!-- REQUIREMENT 2: LOG STAGE — TRANSFORMATION -->
+                    <!-- ========================================= -->
+
+                    <property name="REST_URL_POSTFIX" scope="axis2" action="remove"/>
+                    <property name="HTTP_METHOD"      scope="axis2" value="GET"/>
+                    <property name="Host"             scope="transport" action="remove"/>
+                    <property name="Accept-Encoding"  scope="transport" value="identity"/>
+
+                    <property
+                        expression="get-property('correlationId')"
+                        name="X-Correlation-ID"
+                        scope="transport"
+                        type="STRING"/>
+
+                    <log level="custom">
+                        <property name="STAGE"        value="STAGE_TRANSFORMATION_COMPLETE"/>
+                        <property name="STAGE_NUMBER" value="5/6"/>
+                        <property name="STAGE_NAME"   value="TRANSFORMATION"/>
+                        <property name="Description"  value="Headers set. X-Correlation-ID forwarded to backend."/>
+                        <property name="HeadersSet"   value="X-Correlation-ID, HTTP_METHOD=GET, Host removed"/>
+                        <property expression="get-property('correlationId')" name="CorrelationId"/>
+                        <property expression="get-property('selectedRoute')" name="SelectedRoute"/>
+                    </log>
+
+
+                    <!-- ========================================= -->
+                    <!-- REQUIREMENT 2: LOG STAGE — BACKEND CALL  -->
+                    <!-- ========================================= -->
+
+                    <filter regex="^500$" source="get-property('customerId')">
+
+                        <then>
+                            <!-- REQUIREMENT 4: TRANSACTION WITH BACKEND FAILURE -->
+                            <log level="custom">
+                                <property name="STAGE"        value="STAGE_BACKEND_CALL_START"/>
+                                <property name="STAGE_NUMBER" value="6/6"/>
+                                <property name="STAGE_NAME"   value="BACKEND_CALL"/>
+                                <property name="Description"  value="Customer ID 500 — calling ERROR endpoint to simulate failure."/>
+                                <property name="Endpoint"     value="Day8Practice5ErrorEndpoint"/>
+                                <property name="WARNING"      value="This call is expected to fail for tracing demo."/>
+                                <property expression="get-property('correlationId')" name="CorrelationId"/>
+                                <property expression="get-property('selectedRoute')" name="SelectedRoute"/>
+                            </log>
+
+                            <call>
+                                <endpoint key="Day8Practice5ErrorEndpoint"/>
+                            </call>
+                        </then>
+
+                        <else>
+                            <!-- REQUIREMENT 3: SUCCESSFUL TRANSACTION -->
+                            <log level="custom">
+                                <property name="STAGE"        value="STAGE_BACKEND_CALL_START"/>
+                                <property name="STAGE_NUMBER" value="6/6"/>
+                                <property name="STAGE_NAME"   value="BACKEND_CALL"/>
+                                <property name="Description"  value="Calling main backend endpoint."/>
+                                <property name="Endpoint"     value="Day8Practice5Endpoint"/>
+                                <property expression="get-property('correlationId')" name="CorrelationId"/>
+                                <property expression="get-property('selectedRoute')" name="SelectedRoute"/>
+                            </log>
+
+                            <call>
+                                <endpoint key="Day8Practice5Endpoint"/>
+                            </call>
+                        </else>
+
+                    </filter>
+
+
+                    <!-- ========================================= -->
+                    <!-- REQUIREMENT 2: LOG STAGE — BACKEND RESP  -->
+                    <!-- ========================================= -->
+
+                    <property name="Content-Encoding" scope="transport" action="remove"/>
+
+                    <property
+                        expression="get-property('axis2', 'HTTP_SC')"
+                        name="backendStatusCode"
+                        scope="default"
+                        type="STRING"/>
+
+                    <log level="custom">
+                        <property name="STAGE"        value="STAGE_BACKEND_RESPONSE_RECEIVED"/>
+                        <property name="STAGE_NUMBER" value="6/6"/>
+                        <property name="STAGE_NAME"   value="BACKEND_RESPONSE"/>
+                        <property name="Description"  value="Backend responded. Evaluating status code."/>
+                        <property expression="get-property('correlationId')"    name="CorrelationId"/>
+                        <property expression="get-property('backendStatusCode')" name="BackendStatusCode"/>
+                        <property expression="get-property('selectedRoute')"    name="SelectedRoute"/>
+                    </log>
+
+
+                    <!-- ========================================= -->
+                    <!-- REQUIREMENT 3 & 4: SUCCESS / FAILURE RESP -->
+                    <!-- ========================================= -->
+
+                    <filter xpath="get-property('backendStatusCode') = '200'">
+
+                        <then>
+
+                            <property
+                                expression="json-eval($.name)"
+                                name="backendName"
+                                scope="default"
+                                type="STRING"/>
+
+                            <payloadFactory media-type="json">
+                                <format>
+                                {
+                                    "status": "SUCCESS",
+                                    "code": "200",
+                                    "correlationId": "$1",
+                                    "traceStages": [
+                                        "1-ENTRY",
+                                        "2-VALIDATION: PASSED",
+                                        "3-DATABASE: FOUND",
+                                        "4-ROUTING: $6",
+                                        "5-TRANSFORMATION: COMPLETE",
+                                        "6-BACKEND: 200 OK"
+                                    ],
+                                    "data": {
+                                        "customerId":    "$2",
+                                        "dbName":        "$3",
+                                        "email":         "$4",
+                                        "accountStatus": "$5",
+                                        "route":         "$6",
+                                        "backendName":   "$7"
+                                    }
+                                }
+                                </format>
+                                <args>
+                                    <arg evaluator="xml" expression="get-property('correlationId')"/>
+                                    <arg evaluator="xml" expression="get-property('customerId')"/>
+                                    <arg evaluator="xml" expression="get-property('db_fullName')"/>
+                                    <arg evaluator="xml" expression="get-property('db_email')"/>
+                                    <arg evaluator="xml" expression="get-property('db_accountStatus')"/>
+                                    <arg evaluator="xml" expression="get-property('selectedRoute')"/>
+                                    <arg evaluator="xml" expression="get-property('backendName')"/>
+                                </args>
+                            </payloadFactory>
+
+                            <property name="HTTP_SC"     scope="axis2" value="200"/>
+                            <property name="messageType" scope="axis2" value="application/json"/>
+
+                            <!-- REQUIREMENT 5: LOG FOR RECONSTRUCTING SUCCESSFUL FLOW -->
+                            <log level="custom">
+                                <property name="STAGE"             value="STAGE_RESPONSE_200"/>
+                                <property name="STAGE_NAME"        value="FINAL_RESPONSE"/>
+                                <property name="TransactionStatus" value="SUCCESS"/>
+                                <property name="Description"       value="All 6 stages passed. Returning 200 to client."/>
+                                <property name="FlowSummary"       value="ENTRY->VALIDATION:OK->DB:FOUND->ROUTE->TRANSFORM->BACKEND:200"/>
+                                <property expression="get-property('correlationId')"  name="CorrelationId"/>
+                                <property expression="get-property('customerId')"     name="CustomerId"/>
+                                <property expression="get-property('selectedRoute')"  name="SelectedRoute"/>
+                            </log>
+
+                            <respond/>
+
+                        </then>
+
+                        <else>
+
+                            <payloadFactory media-type="json">
+                                <format>
+                                {
+                                    "status": "ERROR",
+                                    "code": "502",
+                                    "correlationId": "$1",
+                                    "message": "Backend call failed (HTTP $2).",
+                                    "failedAt": "STAGE_6_BACKEND",
+                                    "traceStages": [
+                                        "1-ENTRY",
+                                        "2-VALIDATION: PASSED",
+                                        "3-DATABASE: FOUND",
+                                        "4-ROUTING: $3",
+                                        "5-TRANSFORMATION: COMPLETE",
+                                        "6-BACKEND: FAILED ($2)"
+                                    ]
+                                }
+                                </format>
+                                <args>
+                                    <arg evaluator="xml" expression="get-property('correlationId')"/>
+                                    <arg evaluator="xml" expression="get-property('backendStatusCode')"/>
+                                    <arg evaluator="xml" expression="get-property('selectedRoute')"/>
+                                </args>
+                            </payloadFactory>
+
+                            <property name="HTTP_SC"     scope="axis2" value="502"/>
+                            <property name="messageType" scope="axis2" value="application/json"/>
+
+                            <!-- REQUIREMENT 6: IDENTIFY EXACT STAGE WHERE FAILURE OCCURRED -->
+                            <log level="custom">
+                                <property name="STAGE"             value="STAGE_RESPONSE_502"/>
+                                <property name="STAGE_NAME"        value="FINAL_RESPONSE"/>
+                                <property name="TransactionStatus" value="FAILED"/>
+                                <property name="FailedAt"          value="STAGE_6_BACKEND"/>
+                                <property name="Description"       value="Backend returned non-200. Transaction failed at backend stage."/>
+                                <property name="FlowSummary"       value="ENTRY->VALIDATION:OK->DB:FOUND->ROUTE->TRANSFORM->BACKEND:FAILED"/>
+                                <property expression="get-property('correlationId')"     name="CorrelationId"/>
+                                <property expression="get-property('backendStatusCode')" name="BackendStatusCode"/>
+                                <property expression="get-property('selectedRoute')"     name="SelectedRoute"/>
+                            </log>
+
+                            <respond/>
+
+                        </else>
+
+                    </filter>
+
+                </then>
+
+
+                <!-- ============================================= -->
+                <!-- CUSTOMER NOT FOUND                            -->
+                <!-- ============================================= -->
+
+                <else>
+
+                    <payloadFactory media-type="json">
+                        <format>
+                        {
+                            "status": "ERROR",
+                            "code": "404",
+                            "correlationId": "$1",
+                            "message": "Customer not found in database.",
+                            "failedAt": "STAGE_3_DATABASE",
+                            "traceStages": [
+                                "1-ENTRY",
+                                "2-VALIDATION: PASSED",
+                                "3-DATABASE: NOT FOUND - STOPPED HERE"
+                            ]
+                        }
+                        </format>
+                        <args>
+                            <arg evaluator="xml" expression="get-property('correlationId')"/>
+                        </args>
+                    </payloadFactory>
+
+                    <property name="HTTP_SC"     scope="axis2" value="404"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+
+                    <!-- REQUIREMENT 6: IDENTIFY EXACT STAGE WHERE FAILURE OCCURRED -->
+                    <log level="custom">
+                        <property name="STAGE"             value="STAGE_RESPONSE_404"/>
+                        <property name="STAGE_NAME"        value="FINAL_RESPONSE"/>
+                        <property name="TransactionStatus" value="FAILED"/>
+                        <property name="FailedAt"          value="STAGE_3_DATABASE"/>
+                        <property name="Description"       value="No DB record found for this customer ID. Stopped at DB stage."/>
+                        <property name="FlowSummary"       value="ENTRY->VALIDATION:OK->DB:NOT_FOUND-STOPPED"/>
+                        <property expression="get-property('correlationId')" name="CorrelationId"/>
+                        <property expression="get-property('customerId')"    name="CustomerId"/>
+                    </log>
+
+                    <respond/>
+
+                </else>
+
+            </filter>
+
+        </then>
+
+
+        <!-- ===================================================== -->
+        <!-- VALIDATION FAILURE                                    -->
+        <!-- ===================================================== -->
+
+        <else>
+
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "status": "ERROR",
+                    "code": "400",
+                    "correlationId": "$1",
+                    "message": "Invalid Customer ID parameter.",
+                    "failedAt": "STAGE_2_VALIDATION",
+                    "traceStages": [
+                        "1-ENTRY",
+                        "2-VALIDATION: FAILED - STOPPED HERE"
+                    ]
+                }
+                </format>
+                <args>
+                    <arg evaluator="xml" expression="get-property('correlationId')"/>
+                </args>
+            </payloadFactory>
+
+            <property name="HTTP_SC"     scope="axis2" value="400"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+
+            <!-- REQUIREMENT 6: IDENTIFY EXACT STAGE WHERE FAILURE OCCURRED -->
+            <log level="custom">
+                <property name="STAGE"             value="STAGE_RESPONSE_400"/>
+                <property name="STAGE_NAME"        value="FINAL_RESPONSE"/>
+                <property name="TransactionStatus" value="FAILED"/>
+                <property name="FailedAt"          value="STAGE_2_VALIDATION"/>
+                <property name="Description"       value="Customer ID is not numeric. Stopped at validation stage."/>
+                <property name="FlowSummary"       value="ENTRY->VALIDATION:FAILED-STOPPED"/>
+                <property expression="get-property('correlationId')" name="CorrelationId"/>
+                <property expression="get-property('customerId')"    name="CustomerId"/>
+            </log>
+
+            <respond/>
+
+        </else>
+
+    </filter>
+
+</sequence>

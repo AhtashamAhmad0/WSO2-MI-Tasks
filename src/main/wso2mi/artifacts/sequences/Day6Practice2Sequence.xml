@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day6Practice2Sequence" xmlns="http://ws.apache.org/ns/synapse">
+    <!-- Log entry point -->
+    <log level="custom">
+        <property name="STAGE" value="DAY6_PRACTICE2_ENTRY"/>
+        <property name="INFO" value="Calling backend via reusable endpoint"/>
+    </log>
+
+    <!-- Invoke backend endpoint using Call mediator -->
+    <call>
+        <endpoint key="Day6BackendEndpoint"/>
+    </call>
+
+    <!-- Process and return backend response -->
+    <property name="HTTP_SC" scope="axis2" value="200"/>
+    <property name="messageType" scope="axis2" value="application/json"/>
+    <respond/>
+</sequence>

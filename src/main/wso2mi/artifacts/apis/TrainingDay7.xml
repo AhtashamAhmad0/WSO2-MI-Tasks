@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<api xmlns="http://ws.apache.org/ns/synapse" name="TrainingDay7" context="/trainingday7">
+    <!-- Practice 1 Resource: POST /trainingday7/customer/create -->
+    <resource methods="POST" uri-template="/customer/create">
+        <inSequence>
+            <sequence key="Day7Practice1Sequence"/>
+        </inSequence>
+    </resource>
+    <!-- Practice 2 Resource: POST /trainingday7/customer/header-test -->
+    <resource methods="POST" uri-template="/customer/header-test">
+        <inSequence>
+            <sequence key="Day7Practice2Sequence"/>
+        </inSequence>
+    </resource>
+    <!-- Practice 3 Resource: GET /customer/{id} -->
+    <resource methods="GET" uri-template="/customer/{id}">
+        <inSequence>
+            <sequence key="Day7Practice3Sequence"/>
+        </inSequence>
+        <faultSequence>
+            <sequence key="Day7FaultSequence"/>
+        </faultSequence>
+    </resource>
+    <resource methods="POST" uri-template="/contract">
+        <inSequence>
+            <sequence key="Day7Practice5Sequence"/>
+        </inSequence>
+        <faultSequence>
+            <log level="custom">
+                <property name="STAGE" value="GLOBAL_FAULT_SEQUENCE_TRIGGERED"/>
+                <property name="ErrorMessage" expression="get-property('ERROR_MESSAGE')"/>
+            </log>
+            <payloadFactory media-type="json">
+                <format>
+                    {
+                    "status": "ERROR",
+                    "code": "400-BAD_REQUEST",
+                    "message": "Malformed JSON payload or missing required structure."
+                    }
+                </format>
+                <args/>
+            </payloadFactory>
+            <property name="HTTP_SC" value="400" scope="axis2"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </faultSequence>
+    </resource>
+    <resource methods="GET" uri-template="/contract/{contractId}">
+        <inSequence>
+            <sequence key="Day7GetContractSequence"/>
+        </inSequence>
+        <faultSequence>
+            <log level="custom">
+                <property name="STAGE" value="GET_CONTRACT_FAULT"/>
+                <property name="ErrorMessage" expression="get-property('ERROR_MESSAGE')"/>
+            </log>
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "status": "ERROR",
+                    "code": "404-NOT_FOUND",
+                    "message": "Contract record not found or error occurred during lookup."
+                }
+                </format>
+                <args/>
+            </payloadFactory>
+            <property name="HTTP_SC" value="404" scope="axis2"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </faultSequence>
+    </resource>
+</api>

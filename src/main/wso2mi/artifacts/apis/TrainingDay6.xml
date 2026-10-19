@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<api xmlns="http://ws.apache.org/ns/synapse" name="TrainingDay6" context="/trainingday6">
+    <!-- Practice 1 Resource: GET /trainingday6/hello -->
+    <resource methods="GET" uri-template="/hello">
+        <inSequence>
+            <sequence key="Day6Practice1Sequence"/>
+        </inSequence>
+        <outSequence/>
+        <faultSequence/>
+    </resource>
+
+    <!-- Practice 2 Resource: GET /trainingday6/endpoint-test -->
+    <resource methods="GET" uri-template="/endpoint-test">
+        <inSequence>
+            <sequence key="Day6Practice2Sequence"/>
+        </inSequence>
+        <outSequence/>
+        <faultSequence/>
+    </resource>
+
+    <!-- Practice 3 Resources -->
+    <resource methods="GET" uri-template="/customer/{id}">
+        <inSequence>
+            <sequence key="Day6Practice3Sequence"/>
+        </inSequence>
+         <faultSequence>
+        <sequence key="Day6FaultSequence"/>
+    </faultSequence>
+    </resource>
+
+    <resource methods="POST" uri-template="/customer">
+        <inSequence>
+            <sequence key="Day6Practice3Sequence"/>
+        </inSequence>
+        <faultSequence>
+        <sequence key="Day6FaultSequence"/>
+    </faultSequence>
+    </resource>
+
+    <resource methods="GET" uri-template="/health">
+        <inSequence>
+            <sequence key="Day6Practice3Sequence"/>
+        </inSequence>
+        <faultSequence>
+        <sequence key="Day6FaultSequence"/>
+    </faultSequence>
+    </resource>
+
+    <!-- Practice 4 Resource: POST /trainingday6/ei-to-mi -->
+    <resource methods="POST" uri-template="/ei-to-mi">
+        <inSequence>
+            <sequence key="Day6Practice4Sequence"/>
+        </inSequence>
+    </resource>
+
+    <resource methods="GET" uri-template="/config-err">
+    <inSequence>
+        <sequence key="Day6TroubleshootConfigSequence"/>
+    </inSequence>
+</resource>
+</api>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<endpoint name="Day8Practice4Endpoint" xmlns="http://ws.apache.org/ns/synapse">
+    <http method="get" uri-template="https://httpbin.org/delay/5">
+        <timeout>
+            <duration>2000</duration>
+            <responseAction>fault</responseAction>
+        </timeout>
+    </http>
+</endpoint>

@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day10Practice2Sequence" xmlns="http://ws.apache.org/ns/synapse">
+    <!-- 0. Centralized Logging & Correlation -->
+    <sequence key="CustomerCommonLogging"/>
+    
+    <!-- 1. Extract Payload Fields -->
+    <property expression="json-eval($.name)" name="custName" scope="default" type="STRING"/>
+    <property expression="json-eval($.email)" name="custEmail" scope="default" type="STRING"/>
+
+    <!-- 2. Validate Required Fields -->
+    <filter xpath="string-length(normalize-space(get-property('custName'))) = 0 or string-length(normalize-space(get-property('custEmail'))) = 0">
+        <then>
+            <!-- Return 400 Bad Request on Validation Failure -->
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "status": "ERROR",
+                    "code": "400",
+                    "correlationId": "$1",
+                    "message": "Validation Failed: 'name' and 'email' are mandatory fields."
+                }
+                </format>
+                <args>
+                    <arg evaluator="xml" expression="get-property('correlationId')"/>
+                </args>
+            </payloadFactory>
+            <property name="HTTP_SC" scope="axis2" value="400"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </then>
+        <else>
+            <!-- 3. Check for Duplicate Customer (Email Uniqueness Check) -->
+            <dblookup>
+                <connection>
+                    <pool>
+                        <dsName>jdbc/CustomerMySQLDS</dsName>
+                    </pool>
+                </connection>
+                <statement>
+                    <sql><![CDATA[SELECT customer_id FROM customers WHERE email = ?]]></sql>
+                    <parameter expression="get-property('custEmail')" type="VARCHAR"/>
+                    <result name="existingId" column="customer_id"/>
+                </statement>
+            </dblookup>
+
+            <filter xpath="string-length(normalize-space(get-property('existingId'))) > 0">
+                <then>
+                    <!-- Return 409 Conflict if Duplicate Found -->
+                    <payloadFactory media-type="json">
+                        <format>
+                        {
+                            "status": "ERROR",
+                            "code": "409",
+                            "correlationId": "$1",
+                            "message": "Conflict: Customer with email '$2' already exists."
+                        }
+                        </format>
+                        <args>
+                            <arg evaluator="xml" expression="get-property('correlationId')"/>
+                            <arg evaluator="xml" expression="get-property('custEmail')"/>
+                        </args>
+                    </payloadFactory>
+                    <property name="HTTP_SC" scope="axis2" value="409"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </then>
+                <else>
+                    <!-- 4. Insert Customer Data into MySQL DB -->
+                    <dbreport>
+                        <connection>
+                            <pool>
+                                <dsName>jdbc/CustomerMySQLDS</dsName>
+                            </pool>
+                        </connection>
+                        <statement>
+                            <sql><![CDATA[INSERT INTO customers (full_name, email, account_status) VALUES (?, ?, 'ACTIVE')]]></sql>
+                            <parameter expression="get-property('custName')" type="VARCHAR"/>
+                            <parameter expression="get-property('custEmail')" type="VARCHAR"/>
+                        </statement>
+                    </dbreport>
+
+                    <!-- 4b. Prepare & Execute Downstream Backend Request (Optional / Downstream Sync) -->
+                    <payloadFactory media-type="json">
+                        <format>
+                        {
+                            "event": "CUSTOMER_CREATED",
+                            "correlationId": "$1",
+                            "customerName": "$2",
+                            "customerEmail": "$3"
+                        }
+                        </format>
+                        <args>
+                            <arg evaluator="xml" expression="get-property('correlationId')"/>
+                            <arg evaluator="xml" expression="get-property('custName')"/>
+                            <arg evaluator="xml" expression="get-property('custEmail')"/>
+                        </args>
+                    </payloadFactory>
+                    <property name="HTTP_METHOD" scope="axis2" value="POST"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    
+                    <!-- Uncomment below if calling an external downstream service endpoint -->
+                    <!-- 
+                    <call>
+                        <endpoint key="DownstreamServiceEndpoint"/>
+                    </call> 
+                    -->
+
+                    <!-- 5. Return Consistent Success Response (201 Created) -->
+                    <payloadFactory media-type="json">
+                        <format>
+                        {
+                            "status": "SUCCESS",
+                            "code": "201",
+                            "correlationId": "$1",
+                            "message": "Customer created successfully."
+                        }
+                        </format>
+                        <args>
+                            <arg evaluator="xml" expression="get-property('correlationId')"/>
+                        </args>
+                    </payloadFactory>
+                    <property name="HTTP_SC" scope="axis2" value="201"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </else>
+            </filter>
+        </else>
+    </filter>
+</sequence>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day6Practice1Sequence" xmlns="http://ws.apache.org/ns/synapse">
+    <!-- Step 1: Entry Log -->
+    <log level="custom">
+        <property name="STAGE" value="DAY6_PRACTICE1_ENTRY"/>
+        <property name="INFO" value="Executing Practice 1 Hello World API"/>
+    </log>
+
+    <!-- Step 2: Build JSON Response -->
+    <payloadFactory media-type="json">
+        <format>
+        {
+            "status": "SUCCESS",
+            "message": "Hello World from WSO2 Micro Integrator 4.4!",
+            "runtime": "WSO2 MI 4.4",
+            "timestamp": "$1"
+        }
+        </format>
+        <args>
+            <arg evaluator="xml" expression="get-property('SYSTEM_TIME')"/>
+        </args>
+    </payloadFactory>
+
+    <!-- Step 3: Set HTTP Headers & Return Response -->
+    <property name="HTTP_SC" scope="axis2" value="200"/>
+    <property name="messageType" scope="axis2" value="application/json"/>
+    <property name="ContentType" scope="axis2" value="application/json"/>
+    <respond/>
+</sequence>

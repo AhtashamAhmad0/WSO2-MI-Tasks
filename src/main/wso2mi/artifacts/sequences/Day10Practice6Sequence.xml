@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day10Practice6Sequence" xmlns="http://ws.apache.org/ns/synapse">
+
+    <!-- 1. Correlation ID Handling: Use client header or fallback to MessageID UUID -->
+    <property expression="get-property('transport', 'X-Correlation-ID')" name="correlationId" scope="default" type="STRING"/>
+    <filter xpath="string-length(normalize-space(get-property('correlationId'))) = 0">
+        <then>
+            <property expression="get-property('MessageID')" name="correlationId" scope="default" type="STRING"/>
+        </then>
+    </filter>
+
+    <!-- 2 & 7. Safe Entry Log: Log method, path, and correlation ID (No PII / No Email) -->
+    <log level="custom">
+        <property name="LOG_STAGE" value="ENTRY"/>
+        <property name="CORRELATION_ID" expression="get-property('correlationId')"/>
+        <property name="HTTP_METHOD" expression="get-property('axis2', 'HTTP_METHOD')"/>
+        <property name="REQUEST_PATH" expression="get-property('axis2', 'REST_URL_POSTFIX')"/>
+    </log>
+
+    <!-- 5. Request Validation Extraction -->
+    <property expression="json-eval($.name)" name="custName" scope="default" type="STRING"/>
+    <property expression="json-eval($.email)" name="custEmail" scope="default" type="STRING"/>
+
+    <filter xpath="string-length(normalize-space(get-property('custName'))) = 0 or string-length(normalize-space(get-property('custEmail'))) = 0 or get-property('custName') = 'null' or get-property('custEmail') = 'null'">
+        <then>
+            <log level="custom">
+                <property name="LOG_STAGE" value="VALIDATION_FAILED"/>
+                <property name="CORRELATION_ID" expression="get-property('correlationId')"/>
+            </log>
+            <!-- 4. Consistent JSON Error Response -->
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "status": "ERROR",
+                    "code": "400",
+                    "correlationId": "$1",
+                    "message": "Validation Failed: Mandatory fields 'name' and 'email' are missing or empty."
+                }
+                </format>
+                <args>
+                    <arg evaluator="xml" expression="get-property('correlationId')"/>
+                </args>
+            </payloadFactory>
+            <property name="HTTP_SC" scope="axis2" value="400"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <property name="X-Correlation-ID" expression="get-property('correlationId')" scope="transport" type="STRING"/>
+            <respond/>
+        </then>
+        <else>
+            <!-- 2 & 7. Routing Log: Safe to show customer name, but email is STRICTLY excluded to protect PII -->
+            <log level="custom">
+                <property name="LOG_STAGE" value="ROUTING_TO_DB"/>
+                <property name="CORRELATION_ID" expression="get-property('correlationId')"/>
+                <property name="CUSTOMER_NAME" expression="get-property('custName')"/>
+            </log>
+
+            <!-- 6. Timeout Behavior: Enforced  -->
+            <dbreport>
+                <connection>
+                    <pool>
+                        <dsName>jdbc/CustomerMySQLDS</dsName>
+                    </pool>
+                </connection>
+                <statement>
+                    <sql><![CDATA[INSERT INTO customers (full_name, email, account_status) VALUES (?, ?, 'ACTIVE')]]></sql>
+                    <parameter expression="get-property('custName')" type="VARCHAR"/>
+                    <parameter expression="get-property('custEmail')" type="VARCHAR"/>
+                </statement>
+            </dbreport>
+
+            <!-- 2 & 7. Safe Response Log (Name logged, Email scrubbed) -->
+            <log level="custom">
+                <property name="LOG_STAGE" value="DB_INSERT_SUCCESS"/>
+                <property name="CORRELATION_ID" expression="get-property('correlationId')"/>
+                <property name="CUSTOMER_NAME" expression="get-property('custName')"/>
+            </log>
+
+            <!-- 4. Consistent Success JSON Response -->
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "status": "SUCCESS",
+                    "code": "201",
+                    "correlationId": "$1",
+                    "message": "Customer created successfully with production-grade mediation."
+                }
+                </format>
+                <args>
+                    <arg evaluator="xml" expression="get-property('correlationId')"/>
+                </args>
+            </payloadFactory>
+            <property name="HTTP_SC" scope="axis2" value="201"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <property name="X-Correlation-ID" expression="get-property('correlationId')" scope="transport" type="STRING"/>
+            <respond/>
+        </else>
+    </filter>
+</sequence>

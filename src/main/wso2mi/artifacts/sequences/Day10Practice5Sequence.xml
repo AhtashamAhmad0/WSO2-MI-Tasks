@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day10Practice5Sequence" xmlns="http://ws.apache.org/ns/synapse">
+    <!-- 0. Centralized Inbound Correlation & Common Logging -->
+    <sequence key="CustomerCommonLogging"/>
+    
+    <!-- 1. Extract Customer ID from URI Path Variable -->
+    <property expression="get-property('uri.var.id')" name="customerId" scope="default" type="STRING"/>
+
+    <log level="custom">
+        <property expression="get-property('correlationId')" name="CORRELATION_ID"/>
+        <property expression="get-property('customerId')" name="TARGET_CUSTOMER_ID"/>
+        <property value="Starting DELETE Customer Flow" name="STEP"/>
+    </log>
+
+    <!-- 2. Validate Customer ID Format (Must be Numeric) -->
+    <filter regex="^[0-9]+$" source="get-property('customerId')">
+        <then>
+            <!-- 3. Check Whether Customer Exists Before Deletion -->
+            <dblookup>
+                <connection>
+                    <pool>
+                        <dsName>jdbc/CustomerMySQLDS</dsName>
+                    </pool>
+                </connection>
+                <statement>
+                    <sql><![CDATA[SELECT customer_id, full_name FROM customers WHERE customer_id = ?]]></sql>
+                    <parameter expression="get-property('customerId')" type="INTEGER"/>
+                    <result name="existingId" column="customer_id"/>
+                    <result name="existingName" column="full_name"/>
+                </statement>
+            </dblookup>
+
+            <filter xpath="string-length(normalize-space(get-property('existingId'))) > 0">
+                <then>
+                    <!-- 4. Perform Safe Deletion from DB -->
+                    <dbreport>
+                        <connection>
+                            <pool>
+                                <dsName>jdbc/CustomerMySQLDS</dsName>
+                            </pool>
+                        </connection>
+                        <statement>
+                            <sql><![CDATA[DELETE FROM customers WHERE customer_id = ?]]></sql>
+                            <parameter expression="get-property('customerId')" type="INTEGER"/>
+                        </statement>
+                    </dbreport>
+
+                    <log level="custom">
+                        <property expression="get-property('correlationId')" name="CORRELATION_ID"/>
+                        <property expression="get-property('customerId')" name="SUCCESS_CUSTOMER_DELETED"/>
+                    </log>
+
+                    <!-- 5. Return Agreed Status (200 OK) -->
+                    <payloadFactory media-type="json">
+                        <format>
+                        {
+                            "status": "SUCCESS",
+                            "code": "200",
+                            "correlationId": "$1",
+                            "message": "Customer ID $2 deleted successfully."
+                        }
+                        </format>
+                        <args>
+                            <arg evaluator="xml" expression="get-property('correlationId')"/>
+                            <arg evaluator="xml" expression="get-property('customerId')"/>
+                        </args>
+                    </payloadFactory>
+                    <property name="HTTP_SC" scope="axis2" value="200"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </then>
+                <else>
+                    <!-- 6. Missing Customer Handling (404 Not Found) -->
+                    <log level="custom">
+                        <property expression="get-property('correlationId')" name="CORRELATION_ID"/>
+                        <property expression="get-property('customerId')" name="WARNING_CUSTOMER_NOT_FOUND_FOR_DELETE"/>
+                    </log>
+                    <payloadFactory media-type="json">
+                        <format>
+                        {
+                            "status": "ERROR",
+                            "code": "404",
+                            "correlationId": "$1",
+                            "message": "Cannot delete. Customer ID $2 does not exist."
+                        }
+                        </format>
+                        <args>
+                            <arg evaluator="xml" expression="get-property('correlationId')"/>
+                            <arg evaluator="xml" expression="get-property('customerId')"/>
+                        </args>
+                    </payloadFactory>
+                    <property name="HTTP_SC" scope="axis2" value="404"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </else>
+            </filter>
+        </then>
+        <else>
+            <!-- 7. Invalid ID Format Validation Error (400 Bad Request) -->
+            <log level="custom">
+                <property expression="get-property('correlationId')" name="CORRELATION_ID"/>
+                <property expression="get-property('customerId')" name="ERROR_INVALID_ID_FORMAT"/>
+            </log>
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "status": "ERROR",
+                    "code": "400",
+                    "correlationId": "$1",
+                    "message": "Invalid Customer ID format. ID must be a numeric integer."
+                }
+                </format>
+                <args>
+                    <arg evaluator="xml" expression="get-property('correlationId')"/>
+                </args>
+            </payloadFactory>
+            <property name="HTTP_SC" scope="axis2" value="400"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </else>
+    </filter>
+</sequence>

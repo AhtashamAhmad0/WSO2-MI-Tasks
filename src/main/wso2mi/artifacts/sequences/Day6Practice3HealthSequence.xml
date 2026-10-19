@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day6Practice3HealthSequence" xmlns="http://ws.apache.org/ns/synapse">
+    <payloadFactory media-type="json">
+        <format>
+        {
+            "status": "UP",
+            "service": "TrainingDay6 API",
+            "systemTime": "$1"
+        }
+        </format>
+        <args>
+            <arg evaluator="xml" expression="get-property('SYSTEM_TIME')"/>
+        </args>
+    </payloadFactory>
+
+    <property name="HTTP_SC" scope="axis2" value="200"/>
+    <property name="messageType" scope="axis2" value="application/json"/>
+    <respond/>
+</sequence>

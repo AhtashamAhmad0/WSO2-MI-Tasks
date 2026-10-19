@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day7Practice5Sequence" xmlns="http://ws.apache.org/ns/synapse">
+    
+    <log level="custom">
+        <property name="STAGE" value="SEQUENCE_START"/>
+        <property name="Content-Type" expression="$trp:Content-Type"/>
+    </log>
+
+    <!-- Check Content-Type -->
+    <filter regex="application/json.*" source="$trp:Content-Type">
+        <then>
+            <!-- Extract payload fields safely -->
+            <property name="userId" expression="json-eval($.userId)" scope="default" type="STRING"/>
+            <property name="documentName" expression="json-eval($.documentName)" scope="default" type="STRING"/>
+            
+            <!-- DETAILED EXTRACTION LOG -->
+            <log level="custom">
+                <property name="STAGE" value="FIELDS_EXTRACTED"/>
+                <property name="Extracted_UserId" expression="get-property('userId')"/>
+                <property name="Extracted_DocumentName" expression="get-property('documentName')"/>
+            </log>
+
+            <!-- Check required fields (Empty, null string, or missing) -->
+            <filter xpath="string-length(normalize-space(get-property('userId'))) = 0 or get-property('userId') = 'null' or string-length(normalize-space(get-property('documentName'))) = 0 or get-property('documentName') = 'null'">
+                <then>
+                    <log level="custom">
+                        <property name="STAGE" value="VALIDATION_FAILED_MISSING_FIELDS"/>
+                        <property name="Reason" value="One or both required fields are empty or missing."/>
+                    </log>
+
+                    <payloadFactory media-type="json">
+                        <format>
+                        {
+                            "status": "ERROR",
+                            "code": "400-BAD_REQUEST",
+                            "message": "Contract Validation Failed: userId and documentName are required."
+                        }
+                        </format>
+                        <args/>
+                    </payloadFactory>
+                    <property name="HTTP_SC" value="400" scope="axis2"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </then>
+                <else>
+                    <log level="custom">
+                        <property name="STAGE" value="VALIDATION_PASSED"/>
+                    </log>
+
+                    <!-- Backend invocation rules: Inject metadata headers -->
+                    <property name="X-Contract-Validator" value="WSO2-Practice5" scope="transport" type="STRING"/>
+                    <property name="X-Correlation-ID" expression="get-property('MessageID')" scope="transport" type="STRING"/>
+                    
+                    <call>
+                        <endpoint>
+                            <http method="post" uri-template="https://postman-echo.com/post"/>
+                        </endpoint>
+                    </call>
+
+                    <log level="custom">
+                        <property name="STAGE" value="BACKEND_RESPONSE_RECEIVED"/>
+                        <property name="BackendStatusCode" expression="get-property('axis2', 'HTTP_SC')"/>
+                    </log>
+                    
+                    <payloadFactory media-type="json">
+                        <format>
+                        {
+                            "status": "SUCCESS",
+                            "code": "201-CREATED",
+                            "message": "Contract processed and validated successfully.",
+                            "data": {
+                                "registeredUser": "$1"
+                            }
+                        }
+                        </format>
+                        <args>
+                            <arg expression="get-property('userId')" evaluator="xml"/>
+                        </args>
+                    </payloadFactory>
+                    <property name="HTTP_SC" value="201" scope="axis2"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </else>
+            </filter>
+        </then>
+        <else>
+            <log level="custom">
+                <property name="STAGE" value="UNSUPPORTED_MEDIA_TYPE"/>
+            </log>
+
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "status": "ERROR",
+                    "code": "415-UNSUPPORTED_MEDIA",
+                    "message": "Invalid Content-Type. This API strictly consumes application/json."
+                }
+                </format>
+                <args/>
+            </payloadFactory>
+            <property name="HTTP_SC" value="415" scope="axis2"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </else>
+    </filter>
+</sequence>

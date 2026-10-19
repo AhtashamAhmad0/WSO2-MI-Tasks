@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day8Practice2Sequence" xmlns="http://ws.apache.org/ns/synapse">
+    <!-- 1. Receive JSON from the client -->
+    <property expression="json-eval($.a)" name="numA" scope="default" type="STRING"/>
+    <property expression="json-eval($.b)" name="numB" scope="default" type="STRING"/>
+
+    <log level="custom">
+        <property name="STEP" value="DAY6 Calculator CLIENT REQUEST (JSON)"/>
+        <property expression="get-property('numA')" name="a"/>
+        <property expression="get-property('numB')" name="b"/>
+    </log>
+
+    <filter xpath="string-length(normalize-space(get-property('numA'))) = 0 or get-property('numA') = 'null' or string-length(normalize-space(get-property('numB'))) = 0 or get-property('numB') = 'null'">
+        <then>
+            <payloadFactory media-type="json">
+                <format>{"status":"BAD_REQUEST","message":"a and b are required"}</format>
+                <args/>
+            </payloadFactory>
+            <property name="HTTP_SC" scope="axis2" type="STRING" value="400"/>
+            <property name="messageType" scope="axis2" type="STRING" value="application/json"/>
+            <respond/>
+        </then>
+        <else/>
+    </filter>
+
+    <!-- 2. Construct XML required by the backend -->
+    <payloadFactory media-type="xml">
+        <format>
+            <Add xmlns="http://tempuri.org/">
+                <intA>$1</intA>
+                <intB>$2</intB>
+            </Add>
+        </format>
+        <args>
+            <arg evaluator="xml" expression="get-property('numA')"/>
+            <arg evaluator="xml" expression="get-property('numB')"/>
+        </args>
+    </payloadFactory>
+
+    <!-- 3. Set the correct message type -->
+    <property name="messageType" scope="axis2" type="STRING" value="text/xml"/>
+    <property name="ContentType" scope="axis2" type="STRING" value="text/xml"/>
+    <header name="Action" scope="default" value="http://tempuri.org/Add"/>
+    <property action="remove" name="REST_URL_POSTFIX" scope="axis2"/>
+    <property name="Accept-Encoding" scope="transport" value="identity"/>
+
+    <!-- 7a. Verify outgoing boundary -->
+    <log level="full">
+        <property name="Boundary" value="--- OUTGOING TO BACKEND (XML) ---"/>
+        <property name="Current-Message-Type" expression="get-property('axis2', 'messageType')"/>
+    </log>
+
+    <!-- 4. Call the XML backend -->
+    <call blocking="true">
+        <endpoint>
+            <address format="soap11" uri="http://www.dneonline.com/calculator.asmx">
+                <timeout>
+                    <duration>30000</duration>
+                    <responseAction>fault</responseAction>
+                </timeout>
+            </address>
+        </endpoint>
+    </call>
+
+    <!-- 7b. Verify incoming boundary -->
+    <log level="full">
+        <property name="Boundary" value="--- INCOMING FROM BACKEND (XML) ---"/>
+        <property name="Current-Message-Type" expression="get-property('axis2', 'messageType')"/>
+    </log>
+
+    <!-- 5. Read the XML response -->
+    <property expression="string(//*[local-name()='AddResult'])" name="addResult" scope="default" type="STRING"/>
+
+    <!-- 6. Construct a JSON response for the client -->
+    <payloadFactory media-type="json">
+        <format>{"operation":"Add","result":"$1"}</format>
+        <args>
+            <arg evaluator="xml" expression="get-property('addResult')"/>
+        </args>
+    </payloadFactory>
+
+    <property name="messageType" scope="axis2" type="STRING" value="application/json"/>
+    <property name="HTTP_SC" scope="axis2" type="STRING" value="200"/>
+    <respond/>
+</sequence>

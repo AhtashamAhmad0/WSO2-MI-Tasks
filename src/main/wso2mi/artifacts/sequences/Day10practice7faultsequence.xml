@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fault handler for the lab. The FAULT_EVIDENCE log is the main evidence for the lab report:
+     it records WHERE (phase), WHAT (code + message) and the start of the technical detail.
+     The client only ever sees a static, safe message. -->
+<sequence name="Day10Practice7FaultSequence" xmlns="http://ws.apache.org/ns/synapse">
+
+    <property name="faultPhase" expression="get-property('phase')" scope="default" type="STRING"/>
+
+    <log level="custom">
+        <property name="LAB_STAGE" value="FAULT_EVIDENCE"/>
+        <property name="CorrelationId" expression="get-property('correlationId')"/>
+        <property name="Phase" expression="get-property('faultPhase')"/>
+        <property name="ErrorCode" expression="get-property('ERROR_CODE')"/>
+        <property name="ErrorMessage" expression="get-property('ERROR_MESSAGE')"/>
+        <property name="ErrorDetail" expression="substring(get-property('ERROR_DETAIL'), 1, 300)"/>
+    </log>
+
+    <filter source="get-property('faultPhase')" regex="^INPUT$">
+        <then>
+            <property name="errStatus" value="400" scope="default" type="STRING"/>
+            <property name="errType" value="INVALID_REQUEST" scope="default" type="STRING"/>
+            <property name="errMessage" value="The request body could not be read. Send valid JSON." scope="default" type="STRING"/>
+        </then>
+        <else>
+            <filter source="get-property('faultPhase')" regex="^DB$">
+                <then>
+                    <filter xpath="contains(get-property('ERROR_MESSAGE'), 'Duplicate') or contains(get-property('ERROR_DETAIL'), 'Duplicate')">
+                        <then>
+                            <property name="errStatus" value="409" scope="default" type="STRING"/>
+                            <property name="errType" value="DUPLICATE_CUSTOMER" scope="default" type="STRING"/>
+                            <property name="errMessage" value="This customer already exists." scope="default" type="STRING"/>
+                        </then>
+                        <else>
+                            <property name="errStatus" value="503" scope="default" type="STRING"/>
+                            <property name="errType" value="DATABASE_UNAVAILABLE" scope="default" type="STRING"/>
+                            <property name="errMessage" value="The customer database is unavailable. Please retry later." scope="default" type="STRING"/>
+                        </else>
+                    </filter>
+                </then>
+                <else>
+                    <filter source="get-property('faultPhase')" regex="^BACKEND$">
+                        <then>
+                            <!-- Order matters: timeout first, then TLS, then everything else -->
+                            <filter xpath="get-property('ERROR_CODE') = '101504' or contains(get-property('ERROR_MESSAGE'), 'imeout') or contains(get-property('ERROR_MESSAGE'), 'timed out')">
+                                <then>
+                                    <property name="errStatus" value="504" scope="default" type="STRING"/>
+                                    <property name="errType" value="BACKEND_TIMEOUT" scope="default" type="STRING"/>
+                                    <property name="errMessage" value="The backend did not respond in time." scope="default" type="STRING"/>
+                                </then>
+                                <else>
+                                    <filter xpath="contains(get-property('ERROR_MESSAGE'), 'SSL') or contains(get-property('ERROR_MESSAGE'), 'ertificate') or contains(get-property('ERROR_MESSAGE'), 'handshake') or contains(get-property('ERROR_DETAIL'), 'PKIX') or contains(get-property('ERROR_DETAIL'), 'ertificate')">
+                                        <then>
+                                            <property name="errStatus" value="502" scope="default" type="STRING"/>
+                                            <property name="errType" value="BACKEND_TLS_ERROR" scope="default" type="STRING"/>
+                                            <property name="errMessage" value="A trusted secure connection to the backend could not be established." scope="default" type="STRING"/>
+                                        </then>
+                                        <else>
+                                            <property name="errStatus" value="502" scope="default" type="STRING"/>
+                                            <property name="errType" value="BACKEND_UNAVAILABLE" scope="default" type="STRING"/>
+                                            <property name="errMessage" value="The backend could not be reached." scope="default" type="STRING"/>
+                                        </else>
+                                    </filter>
+                                </else>
+                            </filter>
+                        </then>
+                        <else>
+                            <property name="errStatus" value="500" scope="default" type="STRING"/>
+                            <property name="errType" value="INTERNAL_ERROR" scope="default" type="STRING"/>
+                            <property name="errMessage" value="An unexpected internal error occurred." scope="default" type="STRING"/>
+                        </else>
+                    </filter>
+                </else>
+            </filter>
+        </else>
+    </filter>
+
+    <sequence key="Day10Practice7ErrorSequence"/>
+</sequence>

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day8Practice4ErrorSequence" xmlns="http://ws.apache.org/ns/synapse">
+
+    <log level="custom">
+        <property name="STAGE" value="TIMEOUT_OBSERVED"/>
+        <property expression="get-property('ERROR_MESSAGE')" name="ErrorMessage"/>
+        <property expression="get-property('retryCount')" name="RetryCount"/>
+    </log>
+
+    <!-- Retry is only safe here because this is a GET (idempotent) -->
+    <filter xpath="number(get-property('retryCount')) &lt; 1">
+        <then>
+            <property expression="number(get-property('retryCount')) + 1" name="retryCount" scope="default" type="STRING"/>
+            <log level="custom">
+                <property name="STAGE" value="RETRYING_GET_REQUEST"/>
+                <property expression="get-property('retryCount')" name="RetryCount"/>
+                <property name="Reason" value="GET is idempotent - safe to retry"/>
+            </log>
+            <!-- Re-invoke the GET sequence; its onError will catch another timeout if it happens again -->
+            <sequence key="Day8Practice4GetSequence"/>
+        </then>
+        <else>
+            <log level="custom">
+                <property name="STAGE" value="RETRIES_EXHAUSTED"/>
+                <property expression="get-property('retryCount')" name="RetryCount"/>
+            </log>
+            <payloadFactory media-type="json">
+                <format>
+                { "status": "ERROR", "code": "504", "message": "Backend timed out after retry attempts.", "retriesUsed": "$1" }
+                </format>
+                <args><arg evaluator="xml" expression="get-property('retryCount')"/></args>
+            </payloadFactory>
+            <property name="HTTP_SC" scope="axis2" value="504"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </else>
+    </filter>
+
+</sequence>

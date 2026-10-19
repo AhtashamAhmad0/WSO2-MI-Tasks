@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day10Practice3Sequence" xmlns="http://ws.apache.org/ns/synapse">
+    <!-- 0. Centralized Inbound Correlation & Common Logging -->
+    <sequence key="CustomerCommonLogging"/>
+    
+    <!-- 1. Extract Customer ID from URI Path Variable -->
+    <property expression="get-property('uri.var.id')" name="customerId" scope="default" type="STRING"/>
+
+    <!-- Log extracted ID for tracking -->
+    <log level="custom">
+        <property expression="get-property('correlationId')" name="CORRELATION_ID"/>
+        <property expression="get-property('customerId')" name="EXTRACTED_CUSTOMER_ID"/>
+        <property value="Starting GET Customer Flow" name="STEP"/>
+    </log>
+
+    <!-- 2. Validate ID Format (Must be Numeric) -->
+    <filter regex="^[0-9]+$" source="get-property('customerId')">
+        <then>
+            <log level="custom">
+                <property expression="get-property('correlationId')" name="CORRELATION_ID"/>
+                <property value="Customer ID validation passed. Querying database..." name="STEP"/>
+            </log>
+
+            <!-- 3. Read Customer from Database -->
+            <dblookup>
+                <connection>
+                    <pool>
+                        <dsName>jdbc/CustomerMySQLDS</dsName>
+                    </pool>
+                </connection>
+                <statement>
+                    <sql><![CDATA[SELECT full_name, email, account_status, created_at FROM customers WHERE customer_id = ?]]></sql>
+                    <parameter expression="get-property('customerId')" type="INTEGER"/>
+                    <result name="db_fullName" column="full_name"/>
+                    <result name="db_email" column="email"/>
+                    <result name="db_status" column="account_status"/>
+                    <result name="db_created" column="created_at"/>
+                </statement>
+            </dblookup>
+
+            <!-- Log database result state -->
+            <log level="custom">
+                <property expression="get-property('correlationId')" name="CORRELATION_ID"/>
+                <property expression="get-property('db_fullName')" name="DB_FETCHED_NAME"/>
+                <property value="Database lookup completed" name="STEP"/>
+            </log>
+
+            <!-- 4. Check if Record Exists -->
+            <filter xpath="string-length(normalize-space(get-property('db_fullName'))) > 0">
+                <then>
+                    <!-- Success Response (200 OK) with Customer Contract -->
+                    <payloadFactory media-type="json">
+                        <format>
+                        {
+                            "status": "SUCCESS",
+                            "code": "200",
+                            "correlationId": "$1",
+                            "data": {
+                                "customerId": "$2",
+                                "name": "$3",
+                                "email": "$4",
+                                "accountStatus": "$5",
+                                "createdAt": "$6"
+                            }
+                        }
+                        </format>
+                        <args>
+                            <arg evaluator="xml" expression="get-property('correlationId')"/>
+                            <arg evaluator="xml" expression="get-property('customerId')"/>
+                            <arg evaluator="xml" expression="get-property('db_fullName')"/>
+                            <arg evaluator="xml" expression="get-property('db_email')"/>
+                            <arg evaluator="xml" expression="get-property('db_status')"/>
+                            <arg evaluator="xml" expression="get-property('db_created')"/>
+                        </args>
+                    </payloadFactory>
+                    <property name="HTTP_SC" scope="axis2" value="200"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </then>
+                <else>
+                    <!-- Not Found Response (404 Not Found) -->
+                    <log level="custom">
+                        <property expression="get-property('correlationId')" name="CORRELATION_ID"/>
+                        <property expression="get-property('customerId')" name="WARNING_CUSTOMER_NOT_FOUND"/>
+                    </log>
+                    <payloadFactory media-type="json">
+                        <format>
+                        {
+                            "status": "ERROR",
+                            "code": "404",
+                            "correlationId": "$1",
+                            "message": "Customer with ID $2 not found."
+                        }
+                        </format>
+                        <args>
+                            <arg evaluator="xml" expression="get-property('correlationId')"/>
+                            <arg evaluator="xml" expression="get-property('customerId')"/>
+                        </args>
+                    </payloadFactory>
+                    <property name="HTTP_SC" scope="axis2" value="404"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </else>
+            </filter>
+        </then>
+        <else>
+            <!-- Invalid ID Format Validation Error (400 Bad Request) -->
+            <log level="custom">
+                <property expression="get-property('correlationId')" name="CORRELATION_ID"/>
+                <property expression="get-property('customerId')" name="ERROR_INVALID_ID_FORMAT"/>
+            </log>
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "status": "ERROR",
+                    "code": "400",
+                    "correlationId": "$1",
+                    "message": "Invalid Customer ID format. ID must be a numeric integer."
+                }
+                </format>
+                <args>
+                    <arg evaluator="xml" expression="get-property('correlationId')"/>
+                </args>
+            </payloadFactory>
+            <property name="HTTP_SC" scope="axis2" value="400"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </else>
+    </filter>
+</sequence>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day9FaultSequence" trace="disable" xmlns="http://ws.apache.org/ns/synapse">
+    <payloadFactory media-type="json">
+        <format>
+        {
+            "status": "ERROR",
+            "code": "500",
+            "message": "An internal error occurred while parsing the backend payload."
+        }
+        </format>
+        <args/>
+    </payloadFactory>
+    <property name="HTTP_SC" scope="axis2" value="500"/>
+    <property name="messageType" scope="axis2" value="application/json"/>
+    <respond/>
+</sequence>

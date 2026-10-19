@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day7FaultSequence" xmlns="http://ws.apache.org/ns/synapse">
+    <log level="custom">
+        <property name="STAGE" value="FAULT_HANDLER"/>
+        <property expression="get-property('ERROR_MESSAGE')" name="ErrorMessage"/>
+        <property expression="get-property('ERROR_CODE')" name="ErrorCode"/>
+    </log>
+    <payloadFactory media-type="json">
+        <format>
+        {
+            "status": "ERROR",
+            "code": "500",
+            "message": "An internal error occurred while processing the request."
+        }
+        </format>
+    </payloadFactory>
+    <property name="HTTP_SC" scope="axis2" value="500"/>
+    <property name="messageType" scope="axis2" value="application/json"/>
+    <respond/>
+</sequence>

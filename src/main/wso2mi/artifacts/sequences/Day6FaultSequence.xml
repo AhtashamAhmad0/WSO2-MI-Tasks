@@ -1,0 +1,16 @@
+<sequence name="Day6FaultSequence" xmlns="http://ws.apache.org/ns/synapse">
+    <log level="full">
+        <property name="STAGE" value="FAULT_HANDLER"/>
+    </log>
+    <payloadFactory media-type="json">
+        <format>
+        {
+            "status": "ERROR",
+            "message": "An internal error occurred while processing the request."
+        }
+        </format>
+    </payloadFactory>
+    <property name="HTTP_SC" scope="axis2" value="500"/>
+    <property name="messageType" scope="axis2" value="application/json"/>
+    <respond/>
+</sequence>

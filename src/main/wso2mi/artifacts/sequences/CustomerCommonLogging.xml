@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="CustomerCommonLogging" xmlns="http://ws.apache.org/ns/synapse">
+    <!-- Extract or generate correlation ID -->
+    <property expression="get-property('transport', 'X-Correlation-ID')" name="correlationId" scope="default" type="STRING"/>
+    <filter xpath="string-length(normalize-space(get-property('correlationId'))) = 0">
+        <then>
+            <property expression="get-property('MessageID')" name="correlationId" scope="default" type="STRING"/>
+        </then>
+    </filter>
+    <!-- Log inbound transaction -->
+    <log level="custom">
+        <property expression="get-property('correlationId')" name="CORRELATION_ID"/>
+        <property expression="get-property('axis2', 'HTTP_METHOD')" name="HTTP_METHOD"/>
+        <property expression="get-property('To')" name="REQUEST_PATH"/>
+    </log>
+</sequence>

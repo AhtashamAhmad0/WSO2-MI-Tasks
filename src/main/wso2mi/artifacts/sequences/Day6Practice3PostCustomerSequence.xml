@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day6Practice3PostCustomerSequence" xmlns="http://ws.apache.org/ns/synapse">
+    <!-- Extract body parameters -->
+    <property expression="json-eval($.name)" name="custName" scope="default" type="STRING"/>
+    <property expression="json-eval($.email)" name="custEmail" scope="default" type="STRING"/>
+
+    <!-- Payload Validation: Fail if 'name' is missing -->
+    <filter xpath="string-length(normalize-space(get-property('custName'))) = 0">
+        <then>
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "status": "ERROR",
+                    "message": "Validation Failed: 'name' field is required to create a customer."
+                }
+                </format>
+            </payloadFactory>
+            <property name="HTTP_SC" scope="axis2" value="400"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </then>
+    </filter>
+
+    <!-- Build JSON Response for POST Success -->
+    <payloadFactory media-type="json">
+        <format>
+        {
+            "status": "CREATED",
+            "action": "CREATE_CUSTOMER",
+            "data": {
+                "generatedId": "CUST-9981",
+                "name": "$1",
+                "email": "$2"
+            }
+        }
+        </format>
+        <args>
+            <arg evaluator="xml" expression="get-property('custName')"/>
+            <arg evaluator="xml" expression="get-property('custEmail')"/>
+        </args>
+    </payloadFactory>
+
+    <property name="HTTP_SC" scope="axis2" value="201"/>
+    <property name="messageType" scope="axis2" value="application/json"/>
+    <respond/>
+</sequence>

@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day9Practice5Sequence" xmlns="http://ws.apache.org/ns/synapse">
+
+    <!-- ===== 1. Correlation ID, timer, inputs ===== -->
+    <property name="correlation_id" expression="get-property('MessageID')" scope="default" type="STRING"/>
+    <property name="start_time" expression="get-property('SYSTEM_TIME')" scope="default" type="STRING"/>
+
+    <property name="req_username" expression="json-eval($.username)" scope="default" type="STRING"/>
+    <property name="req_password" expression="json-eval($.password)" scope="default" type="STRING"/>
+    <property name="RequestedEnv" expression="$trp:Environment" scope="default" type="STRING"/>
+
+    <!-- Masked values: the only ones used in logs -->
+    <property name="masked_username" expression="concat(substring(get-property('req_username'),1,2),'****')" scope="default" type="STRING"/>
+    <property name="masked_password" value="********" scope="default" type="STRING"/>
+    <property name="masked_token" value="****" scope="default" type="STRING"/>
+
+    <!-- ===== LOG 1: UPSTREAM REQUEST ===== -->
+    <log level="custom" category="INFO" separator=" | ">
+        <property name="stage" value="UPSTREAM-REQUEST"/>
+        <property name="correlationId" expression="get-property('correlation_id')"/>
+        <property name="resource" value="POST /day9/p5/route-user"/>
+        <property name="environment" expression="get-property('RequestedEnv')"/>
+        <property name="username" expression="get-property('masked_username')"/>
+        <property name="password" expression="get-property('masked_password')"/>
+        <property name="authorization" expression="get-property('masked_token')"/>
+        <property name="contentType" expression="$trp:Content-Type"/>
+    </log>
+
+    <!-- ===== 2. DB lookup ===== -->
+    <dblookup>
+        <connection>
+            <pool>
+                <dsName>jdbc/CustomerMySQLDS</dsName>
+            </pool>
+        </connection>
+        <statement>
+            <sql><![CDATA[SELECT target_env FROM routing_users WHERE username = ? AND password = ?]]></sql>
+            <parameter expression="get-property('req_username')" type="VARCHAR"/>
+            <parameter expression="get-property('req_password')" type="VARCHAR"/>
+            <result name="db_target_env" column="target_env"/>
+        </statement>
+    </dblookup>
+
+    <!-- Remove the real password as soon as it has been used -->
+    <property name="req_password" action="remove" scope="default"/>
+
+    <!-- ===== LOG 2: DB AUTH RESULT ===== -->
+    <log level="custom" category="INFO" separator=" | ">
+        <property name="stage" value="DB-AUTH"/>
+        <property name="correlationId" expression="get-property('correlation_id')"/>
+        <property name="username" expression="get-property('masked_username')"/>
+        <property name="credentialsFound" expression="string-length(get-property('db_target_env')) &gt; 0"/>
+        <property name="dbTargetEnv" expression="get-property('db_target_env')"/>
+        <property name="requestedEnv" expression="get-property('RequestedEnv')"/>
+    </log>
+
+    <!-- ===== 3. Two-factor check ===== -->
+    <filter xpath="string-length(get-property('db_target_env')) &gt; 0 and get-property('db_target_env') = get-property('RequestedEnv')">
+                <then>
+            <!-- Backend call is GET: no resource path, no body -->
+            <property name="REST_URL_POSTFIX" action="remove" scope="axis2"/>
+            <property name="NO_ENTITY_BODY" value="true" scope="axis2" type="BOOLEAN"/>
+
+            <switch source="get-property('RequestedEnv')">
+                <case regex="DEV">
+                    <log level="custom" category="INFO" separator=" | ">
+                        <property name="stage" value="DOWNSTREAM-REQUEST"/>
+                        <property name="correlationId" expression="get-property('correlation_id')"/>
+                        <property name="method" value="GET"/>
+                        <property name="backend" value="https://postman-echo.com/get?active_server=DEV_ENVIRONMENT"/>
+                        <property name="credentialsForwarded" value="NO"/>
+                    </log>
+                    <call>
+                        <endpoint>
+                            <http method="get" uri-template="https://postman-echo.com/get?active_server=DEV_ENVIRONMENT"/>
+                        </endpoint>
+                    </call>
+                </case>
+                <case regex="UAT">
+                    <log level="custom" category="INFO" separator=" | ">
+                        <property name="stage" value="DOWNSTREAM-REQUEST"/>
+                        <property name="correlationId" expression="get-property('correlation_id')"/>
+                        <property name="method" value="GET"/>
+                        <property name="backend" value="https://postman-echo.com/get?active_server=UAT_ENVIRONMENT"/>
+                        <property name="credentialsForwarded" value="NO"/>
+                    </log>
+                    <call>
+                        <endpoint>
+                            <http method="get" uri-template="https://postman-echo.com/get?active_server=UAT_ENVIRONMENT"/>
+                        </endpoint>
+                    </call>
+                </case>
+                <case regex="PROD">
+                    <log level="custom" category="INFO" separator=" | ">
+                        <property name="stage" value="DOWNSTREAM-REQUEST"/>
+                        <property name="correlationId" expression="get-property('correlation_id')"/>
+                        <property name="method" value="GET"/>
+                        <property name="backend" value="https://postman-echo.com/get?active_server=PRODUCTION_ENVIRONMENT"/>
+                        <property name="credentialsForwarded" value="NO"/>
+                    </log>
+                    <call>
+                        <endpoint>
+                            <http method="get" uri-template="https://postman-echo.com/get?active_server=PRODUCTION_ENVIRONMENT"/>
+                        </endpoint>
+                    </call>
+                </case>
+                <default>
+                    <log level="custom" category="WARN" separator=" | ">
+                        <property name="stage" value="ROUTING"/>
+                        <property name="correlationId" expression="get-property('correlation_id')"/>
+                        <property name="warning" value="Unknown environment value"/>
+                    </log>
+                </default>
+            </switch>
+
+            <property name="BackendServer" expression="json-eval($.args.active_server)" scope="default" type="STRING"/>
+            <property name="backend_status" expression="$axis2:HTTP_SC" scope="default" type="STRING"/>
+
+            <!-- LOG 4: DOWNSTREAM RESPONSE (status + one business field only) -->
+            <log level="custom" category="INFO" separator=" | ">
+                <property name="stage" value="DOWNSTREAM-RESPONSE"/>
+                <property name="correlationId" expression="get-property('correlation_id')"/>
+                <property name="backendStatus" expression="get-property('backend_status')"/>
+                <property name="activeServer" expression="get-property('BackendServer')"/>
+            </log>
+
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "status": "SUCCESS",
+                    "user": "$1",
+                    "validated_environment": "$2",
+                    "backend_connected": "$3",
+                    "message": "Two-factor validation and routing successful."
+                }
+                </format>
+                <args>
+                    <arg evaluator="xml" expression="get-property('masked_username')"/>
+                    <arg evaluator="xml" expression="get-property('RequestedEnv')"/>
+                    <arg evaluator="xml" expression="get-property('BackendServer')"/>
+                </args>
+            </payloadFactory>
+
+            <property name="result_status" value="SUCCESS" scope="default"/>
+            <property name="result_code" value="200" scope="default"/>
+        </then>
+        <else>
+            <property name="HTTP_SC" value="401" scope="axis2"/>
+
+            <log level="custom" category="WARN" separator=" | ">
+                <property name="stage" value="AUTH-FAILED"/>
+                <property name="correlationId" expression="get-property('correlation_id')"/>
+                <property name="username" expression="get-property('masked_username')"/>
+                <property name="reason" value="Invalid credentials or Environment mismatch"/>
+            </log>
+
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "status": "FAILED",
+                    "error": "Unauthorized credentials or mismatched Environment header."
+                }
+                </format>
+                <args/>
+            </payloadFactory>
+
+            <property name="result_status" value="FAILED" scope="default"/>
+            <property name="result_code" value="401" scope="default"/>
+        </else>
+    </filter>
+
+    <property name="messageType" value="application/json" scope="axis2"/>
+
+    <!-- ===== LOG 5: UPSTREAM RESPONSE ===== -->
+    <log level="custom" category="INFO" separator=" | ">
+        <property name="stage" value="UPSTREAM-RESPONSE"/>
+        <property name="correlationId" expression="get-property('correlation_id')"/>
+        <property name="user" expression="get-property('masked_username')"/>
+        <property name="result" expression="get-property('result_status')"/>
+        <property name="httpStatus" expression="get-property('result_code')"/>
+        <property name="elapsedMs" expression="number(get-property('SYSTEM_TIME')) - number(get-property('start_time'))"/>
+    </log>
+
+    <respond/>
+</sequence>

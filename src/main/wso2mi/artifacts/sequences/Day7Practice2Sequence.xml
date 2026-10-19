@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day7Practice2Sequence" xmlns="http://ws.apache.org/ns/synapse">
+
+    <!-- Step 1: Extract Client Correlation ID or Auto-Generate UUID -->
+    <property expression="get-property('transport', 'X-Correlation-ID')" name="correlationId" scope="default" type="STRING"/>
+    <filter xpath="string-length(normalize-space(get-property('correlationId'))) = 0">
+        <then>
+            <property expression="get-property('MessageID')" name="correlationId" scope="default" type="STRING"/>
+        </then>
+    </filter>
+
+    <!-- Log 1: Safe Entry Log (Correlation ID included, no raw payload logs) -->
+    <log level="custom">
+        <property name="STAGE" value="DAY7_PRACTICE2_START"/>
+        <property expression="get-property('correlationId')" name="CorrelationID"/>
+        <property name="MESSAGE" value="Processing backend request transformation"/>
+    </log>
+
+    <!-- Step 2: Extract Payload Fields -->
+    <property expression="json-eval($.customerId)" name="reqCustomerId" scope="default" type="STRING"/>
+    <property expression="json-eval($.name)" name="reqName" scope="default" type="STRING"/>
+    <property expression="json-eval($.mobile)" name="reqMobile" scope="default" type="STRING"/>
+    <property expression="json-eval($.type)" name="reqType" scope="default" type="STRING"/>
+
+    <!-- Step 3: Validate Mandatory Fields -->
+    <filter xpath="string-length(normalize-space(get-property('reqCustomerId'))) &gt; 0 and string-length(normalize-space(get-property('reqName'))) &gt; 0 and string-length(normalize-space(get-property('reqType'))) &gt; 0">
+        <then>
+            <!-- Log 2: Safe Operational Log (Masking sensitive mobile number) -->
+            <log level="custom">
+                <property name="STAGE" value="VALIDATION_PASSED"/>
+                <property expression="get-property('correlationId')" name="CorrelationID"/>
+                <property expression="get-property('reqCustomerId')" name="CustomerId"/>
+                <property expression="get-property('reqType')" name="CustomerType"/>
+                <property name="MobileStatus" value="MASKED_FOR_SECURITY"/>
+            </log>
+
+            <!-- Step 4: Construct Backend Contract Payload (Only fields required by backend) -->
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "title": "CUSTOMER_REGISTRATION",
+                    "body": "$1",
+                    "userId": 1,
+                    "accountType": "$2"
+                }
+                </format>
+                <args>
+                    <arg evaluator="xml" expression="get-property('reqName')"/>
+                    <arg evaluator="xml" expression="get-property('reqType')"/>
+                </args>
+            </payloadFactory>
+
+            <!-- Step 5: Set Outbound Transport Headers -->
+            <property name="X-Integration-Source" scope="transport" type="STRING" value="WSO2-MI-4.4-TrainingDay7"/>
+            <property expression="get-property('correlationId')" name="X-Correlation-ID" scope="transport" type="STRING"/>
+
+            <!-- Clear URL postfix and set method -->
+            <property name="REST_URL_POSTFIX" scope="axis2" action="remove"/>
+            <property name="HTTP_METHOD" scope="axis2" value="POST"/>
+            <property name="Host" scope="transport" action="remove"/>
+
+            <!-- Log 3: Safe Pre-Call Operational Log -->
+            <log level="custom">
+                <property name="STAGE" value="CALLING_BACKEND"/>
+                <property expression="get-property('correlationId')" name="CorrelationID"/>
+                <property name="ENDPOINT" value="Day7Practice2Endpoint"/>
+            </log>
+
+            <!-- Step 6: Invoke Backend Endpoint -->
+            <call>
+                <endpoint key="Day7Practice2Endpoint"/>
+            </call>
+
+            <!-- Log 4: Backend Response Received -->
+            <log level="custom">
+                <property name="STAGE" value="BACKEND_RESPONSE_RECEIVED"/>
+                <property expression="get-property('correlationId')" name="CorrelationID"/>
+                <property expression="get-property('axis2', 'HTTP_SC')" name="Backend_HTTP_Status"/>
+            </log>
+
+            <!-- Step 7: Format Final Client Response -->
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "status": "SUCCESS",
+                    "code": "201",
+                    "correlationId": "$1",
+                    "message": "Customer payload transformed and dispatched successfully.",
+                    "data": {
+                        "customerId": "$2",
+                        "processedType": "$3"
+                    }
+                }
+                </format>
+                <args>
+                    <arg evaluator="xml" expression="get-property('correlationId')"/>
+                    <arg evaluator="xml" expression="get-property('reqCustomerId')"/>
+                    <arg evaluator="xml" expression="get-property('reqType')"/>
+                </args>
+            </payloadFactory>
+
+            <property name="HTTP_SC" scope="axis2" value="201"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </then>
+        <else>
+            <!-- Log 5: Safe Validation Failure Log -->
+            <log level="custom">
+                <property name="STAGE" value="VALIDATION_FAILED"/>
+                <property expression="get-property('correlationId')" name="CorrelationID"/>
+                <property name="REASON" value="Missing required fields: customerId, name, or type"/>
+            </log>
+
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "status": "ERROR",
+                    "code": "400",
+                    "correlationId": "$1",
+                    "message": "Validation Failed: 'customerId', 'name', and 'type' are required fields."
+                }
+                </format>
+                <args>
+                    <arg evaluator="xml" expression="get-property('correlationId')"/>
+                </args>
+            </payloadFactory>
+
+            <property name="HTTP_SC" scope="axis2" value="400"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </else>
+    </filter>
+
+</sequence>

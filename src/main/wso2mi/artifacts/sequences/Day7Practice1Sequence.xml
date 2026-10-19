@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day7Practice1Sequence" xmlns="http://ws.apache.org/ns/synapse">
+
+    <!-- Log 1: Sequence Entry Log -->
+    <log level="custom">
+        <property name="STAGE" value="DAY7_PRACTICE1_START"/>
+        <property name="MESSAGE" value="Received POST request to create customer"/>
+    </log>
+
+    <!-- Step 1: Extract payload fields into properties -->
+    <property expression="json-eval($.customerId)" name="reqCustomerId" scope="default" type="STRING"/>
+    <property expression="json-eval($.name)" name="reqName" scope="default" type="STRING"/>
+    <property expression="json-eval($.mobile)" name="reqMobile" scope="default" type="STRING"/>
+    <property expression="json-eval($.type)" name="reqType" scope="default" type="STRING"/>
+
+    <!-- Log 2: Log Extracted Values for Audit -->
+    <log level="custom">
+        <property name="STAGE" value="EXTRACTED_PROPERTIES"/>
+        <property expression="get-property('reqCustomerId')" name="Extracted_CustomerId"/>
+        <property expression="get-property('reqName')" name="Extracted_Name"/>
+        <property expression="get-property('reqMobile')" name="Extracted_Mobile"/>
+        <property expression="get-property('reqType')" name="Extracted_Type"/>
+    </log>
+
+    <!-- Step 2: Validate mandatory fields are not empty -->
+    <filter xpath="string-length(normalize-space(get-property('reqCustomerId'))) &gt; 0 and string-length(normalize-space(get-property('reqName'))) &gt; 0 and string-length(normalize-space(get-property('reqType'))) &gt; 0 and string-length(normalize-space(get-property('reqMobile'))) &gt; 0">
+        <then>
+            <!-- Step 2b: Validate mobile format supports +92 / Pakistani mobile patterns -->
+            <filter source="get-property('reqMobile')" regex="^(\+92|0)?[0-9]{10}$">
+                <then>
+                    <!-- Log 3: Validation Success Log -->
+                    <log level="custom">
+                        <property name="STAGE" value="VALIDATION_PASSED"/>
+                        <property name="MESSAGE" value="All required fields present and mobile is valid. Forwarding to backend endpoint."/>
+                        <property expression="get-property('reqCustomerId')" name="CustomerId"/>
+                    </log>
+
+                    <!-- Step 3: Clear outbound transport properties -->
+                    <property name="REST_URL_POSTFIX" scope="axis2" action="remove"/>
+                    <property name="HTTP_METHOD" scope="axis2" value="POST"/>
+                    <property name="Host" scope="transport" action="remove"/>
+
+                    <!-- Log 4: Pre-Call Log -->
+                    <log level="custom">
+                        <property name="STAGE" value="CALLING_BACKEND"/>
+                        <property name="ENDPOINT" value="Day7PostCustomerEndpoint"/>
+                    </log>
+
+                    <!-- Step 4: Call Backend Endpoint -->
+                    <call>
+                        <endpoint key="Day7PostCustomerEndpoint"/>
+                    </call>
+
+                    <!-- Log 5: Post-Call Backend Response Log -->
+                    <log level="custom">
+                        <property name="STAGE" value="BACKEND_RESPONSE_RECEIVED"/>
+                        <property expression="get-property('axis2', 'HTTP_SC')" name="Backend_HTTP_Status"/>
+                    </log>
+
+                    <!-- Step 5: Format Consistent Success Response -->
+                    <payloadFactory media-type="json">
+                        <format>
+                        {
+                            "status": "SUCCESS",
+                            "code": "201",
+                            "message": "Customer created successfully.",
+                            "data": {
+                                "customerId": "$1",
+                                "name": "$2",
+                                "mobile": "$3",
+                                "type": "$4"
+                            }
+                        }
+                        </format>
+                        <args>
+                            <arg evaluator="xml" expression="get-property('reqCustomerId')"/>
+                            <arg evaluator="xml" expression="get-property('reqName')"/>
+                            <arg evaluator="xml" expression="get-property('reqMobile')"/>
+                            <arg evaluator="xml" expression="get-property('reqType')"/>
+                        </args>
+                    </payloadFactory>
+
+                    <property name="HTTP_SC" scope="axis2" value="201"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+
+                    <!-- Log 6: Outbound Completion Log -->
+                    <log level="custom">
+                        <property name="STAGE" value="DAY7_PRACTICE1_COMPLETED"/>
+                        <property name="MESSAGE" value="Response successfully sent back to client."/>
+                    </log>
+
+                    <respond/>
+                </then>
+                <else>
+                    <!-- Log 7a: Mobile Format Failure Log -->
+                    <log level="custom">
+                        <property name="STAGE" value="VALIDATION_FAILED"/>
+                        <property name="ERROR" value="Mobile field must be a valid Pakistani phone number (e.g., +923001234567 or 03001234567)"/>
+                        <property expression="get-property('reqMobile')" name="Received_Mobile"/>
+                    </log>
+
+                    <payloadFactory media-type="json">
+                        <format>
+                        {
+                            "status": "ERROR",
+                            "code": "400",
+                            "message": "Validation Failed: 'mobile' must be a valid Pakistani phone number format."
+                        }
+                        </format>
+                    </payloadFactory>
+
+                    <property name="HTTP_SC" scope="axis2" value="400"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+
+                    <log level="custom">
+                        <property name="STAGE" value="EARLY_REJECTION_SENT"/>
+                        <property name="STATUS" value="400 Bad Request"/>
+                    </log>
+
+                    <respond/>
+                </else>
+            </filter>
+        </then>
+        <else>
+            <!-- Log 7: Validation Failure Log for Missing Fields -->
+            <log level="custom">
+                <property name="STAGE" value="VALIDATION_FAILED"/>
+                <property name="ERROR" value="Missing or empty required fields (customerId, name, type, mobile)"/>
+                <property expression="get-property('reqCustomerId')" name="Received_CustomerId"/>
+                <property expression="get-property('reqName')" name="Received_Name"/>
+                <property expression="get-property('reqMobile')" name="Received_Mobile"/>
+                <property expression="get-property('reqType')" name="Received_Type"/>
+            </log>
+
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "status": "ERROR",
+                    "code": "400",
+                    "message": "Validation Failed: 'customerId', 'name', 'type', and 'mobile' are required fields."
+                }
+                </format>
+            </payloadFactory>
+
+            <property name="HTTP_SC" scope="axis2" value="400"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+
+            <!-- Log 8: Validation Error Completion Log -->
+            <log level="custom">
+                <property name="STAGE" value="EARLY_REJECTION_SENT"/>
+                <property name="STATUS" value="400 Bad Request"/>
+            </log>
+
+            <respond/>
+        </else>
+    </filter>
+
+</sequence>

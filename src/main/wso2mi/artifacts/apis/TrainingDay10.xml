@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<api xmlns="http://ws.apache.org/ns/synapse" name="TrainingDay10" context="/customer">
+    
+    <!-- 1. POST /customer - Create Customer -->
+    <resource methods="POST" uri-template="">
+        <inSequence>
+            <sequence key="CustomerCreateSequence"/>
+        </inSequence>
+        <outSequence/>
+        <faultSequence>
+            <sequence key="CustomerFaultSequence"/>
+        </faultSequence>
+    </resource>
+
+    <!-- 2. GET /customer/{id} - Retrieve Customer -->
+    <resource methods="GET" uri-template="/{id}">
+        <inSequence>
+            <sequence key="CustomerGetSequence"/>
+        </inSequence>
+        <outSequence/>
+        <faultSequence>
+            <sequence key="CustomerFaultSequence"/>
+        </faultSequence>
+    </resource>
+
+    <!-- 3. PUT /customer/{id} - Update Customer -->
+    <resource methods="PUT" uri-template="/{id}">
+        <inSequence>
+            <sequence key="CustomerUpdateSequence"/>
+        </inSequence>
+        <outSequence/>
+        <faultSequence>
+            <sequence key="CustomerFaultSequence"/>
+        </faultSequence>
+    </resource>
+
+    <!-- 4. DELETE /customer/{id} - Delete Customer -->
+    <resource methods="DELETE" uri-template="/{id}">
+        <inSequence>
+            <sequence key="CustomerDeleteSequence"/>
+        </inSequence>
+        <outSequence/>
+        <faultSequence>
+            <sequence key="CustomerFaultSequence"/>
+        </faultSequence>
+    </resource>
+
+
+
+ <resource methods="POST" uri-template="task2">
+        <inSequence>
+            <sequence key="Day10Practice2Sequence"/>
+        </inSequence>
+        <outSequence/>
+        <faultSequence>
+            <sequence key="CustomerFaultSequence"/>
+        </faultSequence>
+    </resource>
+
+    <resource methods="GET" uri-template="/task3/{id}">
+        <inSequence>
+            <sequence key="Day10Practice3Sequence"/>
+        </inSequence>
+        <outSequence/>
+        <faultSequence>
+            <sequence key="CustomerFaultSequence"/>
+        </faultSequence>
+    </resource>
+
+
+     <resource methods="PUT" uri-template="/task4/{id}">
+        <inSequence>
+            <sequence key="Day10Practice4Sequence"/>
+        </inSequence>
+        <outSequence/>
+        <faultSequence>
+            <sequence key="CustomerFaultSequence"/>
+        </faultSequence>
+    </resource>
+
+
+    <resource methods="DELETE" uri-template="/task5/{id}">
+        <inSequence>
+            <sequence key="Day10Practice5Sequence"/>
+        </inSequence>
+        <outSequence/>
+        <faultSequence>
+            <sequence key="CustomerFaultSequence"/>
+        </faultSequence>
+    </resource>
+
+
+    <!-- Practice 6 Resource -->
+    <resource methods="POST" uri-template="/task6">
+        <inSequence>
+            <sequence key="Day10Practice6Sequence"/>
+        </inSequence>
+        <outSequence/>
+        <faultSequence>
+            <sequence key="CustomerFaultSequence"/>
+        </faultSequence>
+    </resource>
+
+
+    <!-- Practice 7 Resource: failure-injection lab (NEW) -->
+    <resource methods="POST" uri-template="/task7">
+        <inSequence>
+            <sequence key="Day10Practice7Sequence"/>
+        </inSequence>
+        <outSequence/>
+        <faultSequence>
+            <sequence key="Day10Practice7FaultSequence"/>
+        </faultSequence>
+    </resource>
+</api>

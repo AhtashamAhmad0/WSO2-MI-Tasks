@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<api xmlns="http://ws.apache.org/ns/synapse" name="TrainingDay8" context="/trainingday8">
+    <resource methods="GET" uri-template="/p1/customer/{id}">
+        <inSequence>
+            <sequence key="Day8Practice1Sequence"/>
+        </inSequence>
+        <outSequence/>
+        <faultSequence/>
+    </resource>
+
+
+    <resource methods="POST" uri-template="/add" >
+    <inSequence>
+        <sequence key="Day8Practice2Sequence"/>
+    </inSequence>
+    <outSequence/>
+        <faultSequence/>
+    </resource>
+
+     <!-- Practice 3: Dynamic region routing -->
+    <resource methods="GET" uri-template="/p3/service">
+        <inSequence>
+            <sequence key="Day8Practice3Sequence"/>
+        </inSequence>
+        <faultSequence>
+            <sequence key="Day8FaultSequence"/>
+        </faultSequence>
+    </resource>
+
+
+    <!-- Practice 4: Timeout and retry - GET (safe to retry) -->
+    <resource methods="GET" uri-template="/p4/delayed-data">
+    <inSequence>
+        <sequence key="Day8Practice4GetSequence"/>
+    </inSequence>
+    <faultSequence/>
+</resource>
+ 
+    <!-- Practice 4: Timeout and retry - POST (non-idempotent, no auto-retry) -->
+    <resource methods="POST" uri-template="/p4/create-order">
+        <inSequence>
+            <sequence key="Day8Practice4PostSequence"/>
+        </inSequence>
+        <faultSequence>
+            <sequence key="Day8FaultSequence"/>
+        </faultSequence>
+    </resource>
+
+
+     <!-- Practice 5: End-to-end tracing -->
+    <resource methods="GET" uri-template="/p5/transaction/{id}">
+        <inSequence>
+            <sequence key="Day8Practice5Sequence"/>
+        </inSequence>
+        <faultSequence>
+            <sequence key="Day8FaultSequence"/>
+        </faultSequence>
+    </resource>
+
+
+    
+</api>

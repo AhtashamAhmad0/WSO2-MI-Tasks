@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day9Practice3Sequence" xmlns="http://ws.apache.org/ns/synapse">
+
+    <log level="custom">
+        <property name="STAGE" value="AUTH_FLOW_START"/>
+    </log>
+
+    <!-- Step 1 (protection): read the Authorization header -->
+    <property expression="get-property('transport', 'Authorization')" name="authHeader" scope="default" type="STRING"/>
+
+    <!-- Step 2: no credentials at all -->
+    <filter xpath="string-length(normalize-space(get-property('authHeader'))) = 0">
+        <then>
+            <log level="custom">
+                <property name="STAGE" value="AUTH_MISSING"/>
+            </log>
+            <payloadFactory media-type="json">
+                <format>
+                { "status": "ERROR", "code": "401", "message": "Authentication required. No Authorization header was provided." }
+                </format>
+            </payloadFactory>
+            <property name="HTTP_SC" scope="axis2" value="401"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </then>
+        <else>
+            <!-- Step 3/4: validate credentials.
+                 Pre-computed Base64 for "admin:admin123" and "user1:pass123"
+                 (verified: echo -n "admin:admin123" | base64) -->
+            <filter source="get-property('authHeader')" regex="^Basic YWRtaW46YWRtaW4xMjM=$">
+                <then>
+                    <property name="userRole" scope="default" type="STRING" value="ADMIN"/>
+                    <property name="authenticated" scope="default" type="STRING" value="true"/>
+                    <log level="custom">
+                        <property name="STAGE" value="AUTH_SUCCESS"/>
+                        <property name="Role" value="ADMIN"/>
+                    </log>
+                </then>
+                <else>
+                    <filter source="get-property('authHeader')" regex="^Basic dXNlcjE6cGFzczEyMw==$">
+                        <then>
+                            <property name="userRole" scope="default" type="STRING" value="USER"/>
+                            <property name="authenticated" scope="default" type="STRING" value="true"/>
+                            <log level="custom">
+                                <property name="STAGE" value="AUTH_SUCCESS"/>
+                                <property name="Role" value="USER"/>
+                            </log>
+                        </then>
+                        <else>
+                            <property name="authenticated" scope="default" type="STRING" value="false"/>
+                            <log level="custom">
+                                <property name="STAGE" value="AUTH_INVALID_CREDENTIALS"/>
+                            </log>
+                        </else>
+                    </filter>
+                </else>
+            </filter>
+
+            <!-- Step 3: invalid credentials -> 401, distinct message from "missing" -->
+            <filter source="get-property('authenticated')" regex="^false$">
+                <then>
+                    <payloadFactory media-type="json">
+                        <format>
+                        { "status": "ERROR", "code": "401", "message": "Invalid credentials. Authentication failed." }
+                        </format>
+                    </payloadFactory>
+                    <property name="HTTP_SC" scope="axis2" value="401"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </then>
+                <else>
+                    <!-- Step 5: authorization rule - DELETE requires ADMIN role -->
+                    <property expression="get-property('axis2', 'HTTP_METHOD')" name="httpMethod" scope="default" type="STRING"/>
+
+                    <log level="custom">
+                        <property name="STAGE" value="AUTHORIZATION_CHECK"/>
+                        <property expression="get-property('httpMethod')" name="Method"/>
+                        <property expression="get-property('userRole')" name="Role"/>
+                    </log>
+
+                    <filter xpath="get-property('httpMethod') = 'DELETE' and get-property('userRole') != 'ADMIN'">
+                        <then>
+                            <!-- Step 6: authorization failure - 403, clearly distinct from 401 -->
+                            <log level="custom">
+                                <property name="STAGE" value="AUTHORIZATION_DENIED"/>
+                                <property expression="get-property('userRole')" name="Role"/>
+                            </log>
+                            <payloadFactory media-type="json">
+                                <format>
+                                { "status": "ERROR", "code": "403", "message": "Forbidden. Your role ($1) is not authorized to perform DELETE on this resource." }
+                                </format>
+                                <args><arg evaluator="xml" expression="get-property('userRole')"/></args>
+                            </payloadFactory>
+                            <property name="HTTP_SC" scope="axis2" value="403"/>
+                            <property name="messageType" scope="axis2" value="application/json"/>
+                            <respond/>
+                        </then>
+                        <else>
+                            <!-- Step 4: valid credentials AND authorized -->
+                            <log level="custom">
+                                <property name="STAGE" value="ACCESS_GRANTED"/>
+                                <property expression="get-property('userRole')" name="Role"/>
+                                <property expression="get-property('httpMethod')" name="Method"/>
+                            </log>
+                            <payloadFactory media-type="json">
+                                <format>
+                                { "status": "SUCCESS", "code": "200", "message": "Access granted.", "role": "$1", "method": "$2" }
+                                </format>
+                                <args>
+                                    <arg evaluator="xml" expression="get-property('userRole')"/>
+                                    <arg evaluator="xml" expression="get-property('httpMethod')"/>
+                                </args>
+                            </payloadFactory>
+                            <property name="HTTP_SC" scope="axis2" value="200"/>
+                            <property name="messageType" scope="axis2" value="application/json"/>
+                            <respond/>
+                        </else>
+                    </filter>
+                </else>
+            </filter>
+        </else>
+    </filter>
+
+</sequence>

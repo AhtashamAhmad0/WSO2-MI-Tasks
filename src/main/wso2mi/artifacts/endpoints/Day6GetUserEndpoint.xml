@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<endpoint name="Day6GetUserEndpoint" xmlns="http://ws.apache.org/ns/synapse">
+    <http method="get" uri-template="https://jsonplaceholder.typicode.com/users/{uri.var.id}">
+        <timeout>
+            <duration>5000</duration>
+            <responseAction>fault</responseAction>
+        </timeout>
+    </http>
+</endpoint>

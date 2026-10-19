@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<endpoint name="Day9Practice2Endpoint" xmlns="http://ws.apache.org/ns/synapse">
+    <http method="GET" uri-template="https://jsonplaceholder.typicode.com/posts/1">
+        <timeout>
+            <duration>30000</duration>
+            <responseAction>fault</responseAction>
+        </timeout>
+    </http>
+</endpoint>

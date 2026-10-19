@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- One error responder. Callers set errStatus, errType, errMessage (static, client-safe text). -->
+<sequence name="Day10Practice7ErrorSequence" xmlns="http://ws.apache.org/ns/synapse">
+    <log level="custom">
+        <property name="LAB_STAGE" value="RESPOND_ERROR"/>
+        <property name="CorrelationId" expression="get-property('correlationId')"/>
+        <property name="HttpStatus" expression="get-property('errStatus')"/>
+        <property name="ErrorType" expression="get-property('errType')"/>
+        <property name="FailedPhase" expression="get-property('phase')"/>
+    </log>
+    <payloadFactory media-type="json">
+        <format>
+        {
+            "status": "ERROR",
+            "code": "$1",
+            "error": "$2",
+            "message": "$3",
+            "correlationId": "$4"
+        }
+        </format>
+        <args>
+            <arg evaluator="xml" expression="get-property('errStatus')"/>
+            <arg evaluator="xml" expression="get-property('errType')"/>
+            <arg evaluator="xml" expression="get-property('errMessage')"/>
+            <arg evaluator="xml" expression="get-property('correlationId')"/>
+        </args>
+    </payloadFactory>
+    <property name="HTTP_SC" expression="get-property('errStatus')" scope="axis2" type="STRING"/>
+    <property name="messageType" value="application/json" scope="axis2" type="STRING"/>
+    <property name="Content-Encoding" scope="transport" action="remove"/>
+    <property name="X-Correlation-ID" expression="get-property('correlationId')" scope="transport" type="STRING"/>
+    <respond/>
+</sequence>

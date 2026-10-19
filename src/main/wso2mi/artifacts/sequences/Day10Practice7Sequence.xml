@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Practice 7 lab flow: POST /customer/task7
+     validate -> call backend -> insert into DB -> 201
+     The DB row is written only after the backend accepted, so a backend failure leaves the DB untouched.
+     Every stage logs LAB_STAGE with the CorrelationId, so one request can be rebuilt from the log. -->
+<sequence name="Day10Practice7Sequence" xmlns="http://ws.apache.org/ns/synapse">
+
+    <!-- INPUT = still reading/validating the request -->
+    <property name="phase" value="INPUT" scope="default" type="STRING"/>
+    <property name="valid" value="true" scope="default" type="STRING"/>
+    <property name="errMessage" expression="string('')" scope="default" type="STRING"/>
+
+    <!-- Correlation ID: client's header if it is safe, else the MI MessageID -->
+    <property name="correlationId" expression="get-property('transport', 'X-Correlation-ID')" scope="default" type="STRING"/>
+    <filter source="get-property('correlationId')" regex="^[A-Za-z0-9._:-]{1,64}$">
+        <then>
+            <property name="correlationSource" value="CLIENT_HEADER" scope="default" type="STRING"/>
+        </then>
+        <else>
+            <property name="correlationId" expression="get-property('MessageID')" scope="default" type="STRING"/>
+            <property name="correlationSource" value="GENERATED" scope="default" type="STRING"/>
+        </else>
+    </filter>
+
+    <log level="custom">
+        <property name="LAB_STAGE" value="1_ENTRY"/>
+        <property name="CorrelationId" expression="get-property('correlationId')"/>
+        <property name="CorrelationSource" expression="get-property('correlationSource')"/>
+        <property name="Method" expression="get-property('axis2', 'HTTP_METHOD')"/>
+    </log>
+
+    <!-- Read the body. A malformed body fails right here, while phase is still INPUT. -->
+    <property name="c_name" expression="json-eval($.name)" scope="default" type="STRING"/>
+    <property name="c_email" expression="json-eval($.email)" scope="default" type="STRING"/>
+
+    <filter source="get-property('c_name')" regex="^[A-Za-z][A-Za-z .'-]{1,99}$">
+        <then>
+            <property name="v_name" value="ok" scope="default" type="STRING"/>
+        </then>
+        <else>
+            <property name="valid" value="false" scope="default" type="STRING"/>
+            <property name="errMessage" expression="concat(get-property('errMessage'), ' name is required (2-100 letters, spaces, . - and apostrophe).')" scope="default" type="STRING"/>
+        </else>
+    </filter>
+    <filter source="get-property('c_email')" regex="^(?=.{5,150}$)[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$">
+        <then>
+            <property name="v_email" value="ok" scope="default" type="STRING"/>
+        </then>
+        <else>
+            <property name="valid" value="false" scope="default" type="STRING"/>
+            <property name="errMessage" expression="concat(get-property('errMessage'), ' email is required and must be a valid address.')" scope="default" type="STRING"/>
+        </else>
+    </filter>
+
+    <filter source="get-property('valid')" regex="^true$">
+        <then>
+            <log level="custom">
+                <property name="LAB_STAGE" value="2_VALIDATION_PASSED"/>
+                <property name="CorrelationId" expression="get-property('correlationId')"/>
+            </log>
+        </then>
+        <else>
+            <log level="custom">
+                <property name="LAB_STAGE" value="2_VALIDATION_FAILED"/>
+                <property name="CorrelationId" expression="get-property('correlationId')"/>
+                <property name="Problems" expression="get-property('errMessage')"/>
+            </log>
+            <property name="errStatus" value="400" scope="default" type="STRING"/>
+            <property name="errType" value="VALIDATION_ERROR" scope="default" type="STRING"/>
+            <property name="errMessage" expression="concat('Validation failed:', get-property('errMessage'))" scope="default" type="STRING"/>
+            <sequence key="Day10Practice7ErrorSequence"/>
+        </else>
+    </filter>
+
+    <!-- Transformation + backend call -->
+    <property name="phase" value="BACKEND" scope="default" type="STRING"/>
+    <payloadFactory media-type="json">
+        <format>
+        {
+            "name": "$1",
+            "email": "$2"
+        }
+        </format>
+        <args>
+            <arg evaluator="xml" expression="get-property('c_name')"/>
+            <arg evaluator="xml" expression="get-property('c_email')"/>
+        </args>
+    </payloadFactory>
+    <property name="REST_URL_POSTFIX" scope="axis2" action="remove"/>
+    <property name="HTTP_METHOD" value="POST" scope="axis2" type="STRING"/>
+    <property name="messageType" value="application/json" scope="axis2" type="STRING"/>
+    <property name="Host" scope="transport" action="remove"/>
+    <property name="Accept-Encoding" value="identity" scope="transport" type="STRING"/>
+    <property name="Accept" value="application/json" scope="transport" type="STRING"/>
+    <property name="X-Correlation-ID" expression="get-property('correlationId')" scope="transport" type="STRING"/>
+
+    <log level="custom">
+        <property name="LAB_STAGE" value="3_CALL_BACKEND"/>
+        <property name="CorrelationId" expression="get-property('correlationId')"/>
+        <property name="Endpoint" value="Day10Practice7Endpoint"/>
+    </log>
+    <call>
+        <endpoint key="Day10Practice7Endpoint"/>
+    </call>
+    <property name="Content-Encoding" scope="transport" action="remove"/>
+    <property name="backendStatus" expression="get-property('axis2', 'HTTP_SC')" scope="default" type="STRING"/>
+
+    <log level="custom">
+        <property name="LAB_STAGE" value="4_BACKEND_RESPONSE"/>
+        <property name="CorrelationId" expression="get-property('correlationId')"/>
+        <property name="BackendStatus" expression="get-property('backendStatus')"/>
+    </log>
+
+    <filter source="get-property('backendStatus')" regex="^2[0-9][0-9]$">
+        <then>
+            <log level="custom">
+                <property name="LAB_STAGE" value="4_BACKEND_OK"/>
+                <property name="CorrelationId" expression="get-property('correlationId')"/>
+            </log>
+        </then>
+        <else>
+            <!-- Backend answered, but not with 2xx (for example the forced HTTP 500). The body is not parsed. -->
+            <log level="custom">
+                <property name="LAB_STAGE" value="4_BACKEND_REJECTED"/>
+                <property name="CorrelationId" expression="get-property('correlationId')"/>
+                <property name="BackendStatus" expression="get-property('backendStatus')"/>
+            </log>
+            <property name="errStatus" value="502" scope="default" type="STRING"/>
+            <property name="errType" value="BACKEND_ERROR" scope="default" type="STRING"/>
+            <property name="errMessage" value="The backend returned an error. The customer was not saved." scope="default" type="STRING"/>
+            <sequence key="Day10Practice7ErrorSequence"/>
+        </else>
+    </filter>
+
+    <!-- Database write -->
+    <property name="phase" value="DB" scope="default" type="STRING"/>
+    <log level="custom">
+        <property name="LAB_STAGE" value="5_DB_INSERT_START"/>
+        <property name="CorrelationId" expression="get-property('correlationId')"/>
+        <property name="DataSource" value="jdbc/Customerrouting"/>
+    </log>
+    <dbreport>
+        <connection>
+            <pool>
+                <dsName>jdbc/CustomerMySQLDS</dsName>
+            </pool>
+        </connection>
+        <statement>
+            <sql><![CDATA[INSERT INTO customers (full_name, email, account_status) VALUES (?, ?, 'ACTIVE')]]></sql>
+            <parameter expression="get-property('c_name')" type="VARCHAR"/>
+            <parameter expression="get-property('c_email')" type="VARCHAR"/>
+        </statement>
+    </dbreport>
+    <log level="custom">
+        <property name="LAB_STAGE" value="5_DB_INSERT_DONE"/>
+        <property name="CorrelationId" expression="get-property('correlationId')"/>
+    </log>
+
+    <!-- Response -->
+    <payloadFactory media-type="json">
+        <format>
+        {
+            "status": "SUCCESS",
+            "code": "201",
+            "message": "Customer created.",
+            "correlationId": "$1"
+        }
+        </format>
+        <args>
+            <arg evaluator="xml" expression="get-property('correlationId')"/>
+        </args>
+    </payloadFactory>
+    <property name="HTTP_SC" value="201" scope="axis2" type="STRING"/>
+    <property name="messageType" value="application/json" scope="axis2" type="STRING"/>
+    <property name="X-Correlation-ID" expression="get-property('correlationId')" scope="transport" type="STRING"/>
+    <log level="custom">
+        <property name="LAB_STAGE" value="6_RESPOND_201"/>
+        <property name="CorrelationId" expression="get-property('correlationId')"/>
+    </log>
+    <respond/>
+</sequence>

@@ -1,0 +1,256 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day7Practice3Sequence" xmlns="http://ws.apache.org/ns/synapse">
+
+    <log level="custom">
+        <property name="STAGE" value="GET_CUSTOMER_START"/>
+    </log>
+
+    <!-- Step 1: Extract Correlation ID -->
+    <property expression="get-property('transport', 'X-Correlation-ID')" name="correlationId" scope="default" type="STRING"/>
+    <filter xpath="string-length(normalize-space(get-property('correlationId'))) = 0">
+        <then>
+            <property expression="get-property('MessageID')" name="correlationId" scope="default" type="STRING"/>
+            <log level="custom">
+                <property name="STAGE" value="CORRELATION_ID_FALLBACK"/>
+                <property name="Reason" value="No X-Correlation-ID header found, using MessageID instead"/>
+                <property expression="get-property('correlationId')" name="CorrelationId"/>
+            </log>
+        </then>
+    </filter>
+
+    <log level="custom">
+        <property name="STAGE" value="CORRELATION_ID_RESOLVED"/>
+        <property expression="get-property('correlationId')" name="CorrelationId"/>
+    </log>
+
+    <!-- Step 2: Extract Path Parameter {id} -->
+    <property expression="get-property('uri.var.id')" name="customerId" scope="default" type="STRING"/>
+
+    <log level="custom">
+        <property name="STAGE" value="PATH_PARAM_EXTRACTED"/>
+        <property expression="get-property('customerId')" name="CustomerId"/>
+        <property expression="get-property('correlationId')" name="CorrelationId"/>
+    </log>
+
+    <!-- Step 3: Validate ID -->
+    <filter regex="^[0-9]+$|^error$" source="get-property('customerId')">
+        <then>
+            <log level="custom">
+                <property name="STAGE" value="VALIDATION_PASSED"/>
+                <property expression="get-property('customerId')" name="CustomerId"/>
+                <property expression="get-property('correlationId')" name="CorrelationId"/>
+            </log>
+
+            <property name="REST_URL_POSTFIX" scope="axis2" action="remove"/>
+            <property name="HTTP_METHOD" scope="axis2" value="GET"/>
+            <property name="Host" scope="transport" action="remove"/>
+
+            <!-- Avoid gzip from backend so MI doesn't fail building the message -->
+            <property name="Accept-Encoding" scope="transport" value="identity"/>
+
+            <!-- FIX: ask backend to return JSON, not HTML. httpstat.us returns a
+                 malformed HTML error page by default which MI cannot parse as XML. -->
+            <property name="Accept" scope="transport" value="application/json"/>
+
+            <property name="X-Integration-Source" scope="transport" type="STRING" value="WSO2-MI-4.4-TrainingDay7"/>
+            <property expression="get-property('correlationId')" name="X-Correlation-ID" scope="transport" type="STRING"/>
+
+            <!-- Route to Endpoint -->
+            <filter regex="^500$|^error$" source="get-property('customerId')">
+                <then>
+                    <log level="custom">
+                        <property name="STAGE" value="ROUTING_TO_ERROR_ENDPOINT"/>
+                        <property name="Endpoint" value="Day7Practice3ErrorEndpoint"/>
+                        <property expression="get-property('customerId')" name="CustomerId"/>
+                        <property expression="get-property('correlationId')" name="CorrelationId"/>
+                    </log>
+                    <call>
+                        <endpoint key="Day7Practice3ErrorEndpoint"/>
+                    </call>
+                </then>
+                <else>
+                    <log level="custom">
+                        <property name="STAGE" value="ROUTING_TO_MAIN_ENDPOINT"/>
+                        <property name="Endpoint" value="Day7Practice3Endpoint"/>
+                        <property expression="get-property('customerId')" name="CustomerId"/>
+                        <property expression="get-property('correlationId')" name="CorrelationId"/>
+                    </log>
+                    <call>
+                        <endpoint key="Day7Practice3Endpoint"/>
+                    </call>
+                </else>
+            </filter>
+
+            <!-- Remove stale Content-Encoding header so later filters don't choke on it -->
+            <property name="Content-Encoding" scope="transport" action="remove"/>
+
+            <!-- Save HTTP Status Code without triggering body parsing -->
+            <property expression="get-property('axis2', 'HTTP_SC')" name="backendStatusCode" scope="default" type="STRING"/>
+
+            <log level="custom">
+                <property name="STAGE" value="BACKEND_RESPONSE_RECEIVED"/>
+                <property expression="get-property('backendStatusCode')" name="BackendStatusCode"/>
+                <property expression="get-property('customerId')" name="CustomerId"/>
+                <property expression="get-property('correlationId')" name="CorrelationId"/>
+            </log>
+
+            <!-- Step 4: Evaluate Status Code FIRST before attempting json-eval -->
+            <filter xpath="get-property('backendStatusCode') = '200'">
+                <then>
+                    <log level="custom">
+                        <property name="STAGE" value="BACKEND_SUCCESS_200"/>
+                        <property expression="get-property('customerId')" name="CustomerId"/>
+                        <property expression="get-property('correlationId')" name="CorrelationId"/>
+                    </log>
+
+                    <!-- Safe to evaluate JSON payload here because status is 200 OK -->
+                    <property expression="json-eval($.name)" name="custName" scope="default" type="STRING"/>
+                    <property expression="json-eval($.email)" name="custEmail" scope="default" type="STRING"/>
+                    <property expression="json-eval($.phone)" name="custPhone" scope="default" type="STRING"/>
+
+                    <log level="custom">
+                        <property name="STAGE" value="BACKEND_PAYLOAD_PARSED"/>
+                        <property expression="get-property('custName')" name="CustName"/>
+                        <property expression="get-property('custEmail')" name="CustEmail"/>
+                        <property expression="get-property('custPhone')" name="CustPhone"/>
+                    </log>
+
+                    <payloadFactory media-type="json">
+                        <format>
+                        {
+                            "status": "SUCCESS",
+                            "code": "200",
+                            "correlationId": "$1",
+                            "data": {
+                                "customerId": "$2",
+                                "name": "$3",
+                                "email": "$4",
+                                "phone": "$5"
+                            }
+                        }
+                        </format>
+                        <args>
+                            <arg evaluator="xml" expression="get-property('correlationId')"/>
+                            <arg evaluator="xml" expression="get-property('customerId')"/>
+                            <arg evaluator="xml" expression="get-property('custName')"/>
+                            <arg evaluator="xml" expression="get-property('custEmail')"/>
+                            <arg evaluator="xml" expression="get-property('custPhone')"/>
+                        </args>
+                    </payloadFactory>
+
+                    <property name="HTTP_SC" scope="axis2" value="200"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+
+                    <log level="custom">
+                        <property name="STAGE" value="RESPOND_200"/>
+                        <property expression="get-property('correlationId')" name="CorrelationId"/>
+                    </log>
+
+                    <respond/>
+                </then>
+                <else>
+                    <!-- Handle Non-200 Responses WITHOUT parsing the incoming payload body -->
+                    <filter xpath="get-property('backendStatusCode') = '404'">
+                        <then>
+                            <log level="custom">
+                                <property name="STAGE" value="BACKEND_NOT_FOUND_404"/>
+                                <property expression="get-property('customerId')" name="CustomerId"/>
+                                <property expression="get-property('correlationId')" name="CorrelationId"/>
+                            </log>
+
+                            <payloadFactory media-type="json">
+                                <format>
+                                {
+                                    "status": "ERROR",
+                                    "code": "404",
+                                    "correlationId": "$1",
+                                    "message": "Customer with ID $2 does not exist."
+                                }
+                                </format>
+                                <args>
+                                    <arg evaluator="xml" expression="get-property('correlationId')"/>
+                                    <arg evaluator="xml" expression="get-property('customerId')"/>
+                                </args>
+                            </payloadFactory>
+
+                            <property name="HTTP_SC" scope="axis2" value="404"/>
+                            <property name="messageType" scope="axis2" value="application/json"/>
+
+                            <log level="custom">
+                                <property name="STAGE" value="RESPOND_404"/>
+                                <property expression="get-property('correlationId')" name="CorrelationId"/>
+                            </log>
+
+                            <respond/>
+                        </then>
+                        <else>
+                            <log level="custom">
+                                <property name="STAGE" value="BACKEND_UPSTREAM_FAILURE"/>
+                                <property expression="get-property('backendStatusCode')" name="BackendStatusCode"/>
+                                <property expression="get-property('customerId')" name="CustomerId"/>
+                                <property expression="get-property('correlationId')" name="CorrelationId"/>
+                            </log>
+
+                            <payloadFactory media-type="json">
+                                <format>
+                                {
+                                    "status": "ERROR",
+                                    "code": "502",
+                                    "correlationId": "$1",
+                                    "message": "Upstream backend service encountered an internal server error (HTTP $2)."
+                                }
+                                </format>
+                                <args>
+                                    <arg evaluator="xml" expression="get-property('correlationId')"/>
+                                    <arg evaluator="xml" expression="get-property('backendStatusCode')"/>
+                                </args>
+                            </payloadFactory>
+
+                            <property name="HTTP_SC" scope="axis2" value="502"/>
+                            <property name="messageType" scope="axis2" value="application/json"/>
+
+                            <log level="custom">
+                                <property name="STAGE" value="RESPOND_502"/>
+                                <property expression="get-property('correlationId')" name="CorrelationId"/>
+                            </log>
+
+                            <respond/>
+                        </else>
+                    </filter>
+                </else>
+            </filter>
+        </then>
+        <else>
+            <log level="custom">
+                <property name="STAGE" value="VALIDATION_FAILED"/>
+                <property expression="get-property('customerId')" name="InvalidCustomerId"/>
+                <property expression="get-property('correlationId')" name="CorrelationId"/>
+            </log>
+
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "status": "ERROR",
+                    "code": "400",
+                    "correlationId": "$1",
+                    "message": "Invalid Customer ID parameter."
+                }
+                </format>
+                <args>
+                    <arg evaluator="xml" expression="get-property('correlationId')"/>
+                </args>
+            </payloadFactory>
+
+            <property name="HTTP_SC" scope="axis2" value="400"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+
+            <log level="custom">
+                <property name="STAGE" value="RESPOND_400"/>
+                <property expression="get-property('correlationId')" name="CorrelationId"/>
+            </log>
+
+            <respond/>
+        </else>
+    </filter>
+
+</sequence>

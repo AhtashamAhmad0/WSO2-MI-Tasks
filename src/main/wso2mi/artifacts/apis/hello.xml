@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<api xmlns="http://ws.apache.org/ns/synapse"
+     name="SimpleAPI"
+     context="/hello">
+
+    <resource methods="GET" uri-template="/">
+        <inSequence>
+
+            <!-- Log message -->
+            <log level="custom">
+                <property name="API" value="SimpleAPI"/>
+                <property name="Message" value="Hello API called successfully"/>
+            </log>
+
+            <!-- Create JSON response -->
+            <payloadFactory media-type="json">
+                <format>
+                    {
+                        "status": "success",
+                        "message": "Hello from WSO2 Micro Integrator"
+                    }
+                </format>
+                <args/>
+            </payloadFactory>
+
+            <!-- HTTP status -->
+            <property name="HTTP_SC" scope="axis2" value="200"/>
+
+            <!-- Send response -->
+            <respond/>
+
+        </inSequence>
+
+        <outSequence/>
+        <faultSequence/>
+    </resource>
+
+</api>

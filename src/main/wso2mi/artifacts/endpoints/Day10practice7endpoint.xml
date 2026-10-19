@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Lab backend. Every backend failure (F1, F3, F6, F7) is injected by editing ONLY this file. -->
+<endpoint name="Day10Practice7Endpoint" xmlns="http://ws.apache.org/ns/synapse">
+    <http method="post" uri-template="https://httpbin.org/delay/10">
+        <timeout>
+            <duration>2000</duration>
+            <responseAction>fault</responseAction>
+        </timeout>
+        <!-- Never suspend: every request is judged fresh, so retests after a fix are predictable. -->
+        <suspendOnFailure>
+            <initialDuration>-1</initialDuration>
+            <progressionFactor>1.0</progressionFactor>
+        </suspendOnFailure>
+    </http>
+</endpoint>

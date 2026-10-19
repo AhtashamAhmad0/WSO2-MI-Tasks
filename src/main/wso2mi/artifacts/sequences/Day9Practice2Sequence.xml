@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day9Practice2Sequence" trace="disable" xmlns="http://ws.apache.org/ns/synapse">
+    <!-- Configure HTTPS GET Request (No Header Logic) -->
+    <property name="REST_URL_POSTFIX" scope="axis2" action="remove"/>
+    <property name="HTTP_METHOD" scope="axis2" value="GET"/>
+
+    <!-- FIX: ask backend not to compress the response, so the stale
+         Content-Encoding header never ends up on our rebuilt payload -->
+    <property name="Accept-Encoding" scope="transport" value="identity"/>
+
+    <!-- Call HTTPS Backend Endpoint -->
+    <call>
+        <endpoint key="Day9Practice2Endpoint"/>
+    </call>
+
+    <!-- FIX: safety net - strip any Content-Encoding header left over
+         from the backend response before we respond with our own fresh body -->
+    <property name="Content-Encoding" scope="transport" action="remove"/>
+
+    <!-- Extract HTTP Status Code -->
+    <property expression="get-property('axis2', 'HTTP_SC')" name="backendStatusCode" scope="default" type="STRING"/>
+
+    <!-- Safely Check HTTP Status 200 before parsing JSON -->
+    <filter xpath="get-property('backendStatusCode') = '200'">
+        <then>
+            <property expression="json-eval($.id)" name="postId" scope="default" type="STRING"/>
+            <property expression="json-eval($.title)" name="postTitle" scope="default" type="STRING"/>
+
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "status": "SUCCESS",
+                    "code": "200",
+                    "protocol": "HTTPS",
+                    "data": {
+                        "postId": "$1",
+                        "title": "$2"
+                    }
+                }
+                </format>
+                <args>
+                    <arg evaluator="xml" expression="get-property('postId')"/>
+                    <arg evaluator="xml" expression="get-property('postTitle')"/>
+                </args>
+            </payloadFactory>
+            <property name="HTTP_SC" scope="axis2" value="200"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </then>
+        <else>
+            <payloadFactory media-type="json">
+                <format>
+                {
+                    "status": "ERROR",
+                    "code": "502",
+                    "message": "HTTPS backend call failed with status code $1."
+                }
+                </format>
+                <args>
+                    <arg evaluator="xml" expression="get-property('backendStatusCode')"/>
+                </args>
+            </payloadFactory>
+            <property name="HTTP_SC" scope="axis2" value="502"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </else>
+    </filter>
+</sequence>

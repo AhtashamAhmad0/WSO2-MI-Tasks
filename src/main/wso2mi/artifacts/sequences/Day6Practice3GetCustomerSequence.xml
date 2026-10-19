@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day6Practice3GetCustomerSequence" xmlns="http://ws.apache.org/ns/synapse">
+    <!-- Extract URI Parameter 'id' -->
+    <property expression="get-property('uri.var.id')" name="customerId" scope="default" type="STRING"/>
+
+    <log level="custom">
+        <property name="STAGE" value="GET_CUSTOMER"/>
+        <property expression="get-property('customerId')" name="RequestedID"/>
+    </log>
+
+    <!-- Build JSON Response for GET -->
+    <payloadFactory media-type="json">
+        <format>
+        {
+            "status": "SUCCESS",
+            "action": "FETCH_CUSTOMER",
+            "data": {
+                "id": "$1",
+                "name": "John Doe",
+                "email": "john.doe@example.com",
+                "accountStatus": "ACTIVE"
+            }
+        }
+        </format>
+        <args>
+            <arg evaluator="xml" expression="get-property('customerId')"/>
+        </args>
+    </payloadFactory>
+
+    <property name="HTTP_SC" scope="axis2" value="200"/>
+    <property name="messageType" scope="axis2" value="application/json"/>
+    <respond/>
+</sequence>

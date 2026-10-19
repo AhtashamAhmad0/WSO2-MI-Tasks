@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence name="Day6Practice3Sequence" xmlns="http://ws.apache.org/ns/synapse">
+    <property expression="get-property('axis2', 'HTTP_METHOD')" name="httpMethod" scope="default" type="STRING"/>
+    <property expression="get-property('axis2', 'REST_URL_POSTFIX')" name="urlPostfix" scope="default" type="STRING"/>
+    <!-- ========================================== -->
+    <!-- ROUTE 1: GET /customer/{id}               -->
+    <!-- ========================================== -->
+    <filter xpath="get-property('httpMethod') = 'GET' and starts-with(get-property('urlPostfix'), '/customer/')">
+        <then>
+            <property expression="get-property('uri.var.id')" name="customerId" scope="default" type="STRING"/>
+            <!-- Validation: ID must be numeric -->
+            <filter regex="^[0-9]+$" source="get-property('customerId')">
+                <then>
+                    <log level="custom">
+                        <property name="STAGE" value="GET_CUSTOMER_START"/>
+                        <property expression="get-property('customerId')" name="TargetUserID"/>
+                    </log>
+                    <!-- FIX 1: Remove REST_URL_POSTFIX so MI does NOT append extra path -->
+                    <property name="REST_URL_POSTFIX" scope="axis2" action="remove"/>
+                    <!-- FIX 2: Explicitly set HTTP Method for backend invocation -->
+                    <property name="HTTP_METHOD" scope="axis2" value="GET"/>
+                    <!-- FIX 3: Remove transport headers to prevent host/port mismatch -->
+                    <property name="Host" scope="transport" action="remove"/>
+                    <!-- Avoid gzip from backend so we don't need to strip Content-Encoding -->
+                    <property name="Accept-Encoding" scope="transport" value="identity"/>
+                    <!-- Call Endpoint -->
+                    <call>
+                        <endpoint key="Day6GetUserEndpoint"/>
+                    </call>
+                    <!-- Safety net: remove stale Content-Encoding header if present -->
+                    <property name="Content-Encoding" scope="transport" action="remove"/>
+
+                    <!-- Capture the REAL status code returned by the backend -->
+                    <property expression="get-property('axis2', 'HTTP_SC')" name="backendStatus" scope="default" type="STRING"/>
+
+                    <log level="custom">
+                        <property name="STAGE" value="GET_CUSTOMER_BACKEND_STATUS"/>
+                        <property expression="get-property('backendStatus')" name="BackendStatus"/>
+                    </log>
+
+                    <!-- NOT FOUND CHECK: did the backend return 404? -->
+                    <filter source="get-property('backendStatus')" regex="404">
+                        <then>
+                            <payloadFactory media-type="json">
+                                <format>
+                                    {
+                                    "status": "ERROR",
+                                    "message": "Customer not found"
+                                    }
+                                </format>
+                            </payloadFactory>
+                            <property name="HTTP_SC" scope="axis2" value="404"/>
+                            <property name="messageType" scope="axis2" value="application/json"/>
+                            <respond/>
+                        </then>
+                        <else>
+                            <property name="HTTP_SC" scope="axis2" value="200"/>
+                            <property name="messageType" scope="axis2" value="application/json"/>
+                            <respond/>
+                        </else>
+                    </filter>
+                </then>
+                <else>
+                    <payloadFactory media-type="json">
+                        <format>
+                            {
+                            "status": "ERROR",
+                            "message": "Invalid customer ID: Parameter must be a positive integer."
+                            }
+                        </format>
+                    </payloadFactory>
+                    <property name="HTTP_SC" scope="axis2" value="400"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </else>
+            </filter>
+        </then>
+    </filter>
+    <!-- ========================================== -->
+    <!-- ROUTE 2: POST /customer                   -->
+    <!-- ========================================== -->
+    <filter xpath="get-property('httpMethod') = 'POST' and get-property('urlPostfix') = '/customer'">
+        <then>
+            <property expression="json-eval($.name)" name="custName" scope="default" type="STRING"/>
+            <property expression="json-eval($.email)" name="custEmail" scope="default" type="STRING"/>
+            <filter xpath="string-length(normalize-space(get-property('custName'))) &gt; 0 and string-length(normalize-space(get-property('custEmail'))) &gt; 0">
+                <then>
+                    <log level="custom">
+                        <property name="STAGE" value="POST_CUSTOMER_START"/>
+                        <property expression="get-property('custName')" name="CreatingUser"/>
+                    </log>
+                    <!-- FIX 1 & 2 for POST -->
+                    <property name="REST_URL_POSTFIX" scope="axis2" action="remove"/>
+                    <property name="HTTP_METHOD" scope="axis2" value="POST"/>
+                    <property name="Host" scope="transport" action="remove"/>
+                    <call>
+                        <endpoint key="Day6PostUserEndpoint"/>
+                    </call>
+
+                    <property name="Content-Encoding" scope="transport" action="remove"/>
+
+                    <property name="HTTP_SC" scope="axis2" value="201"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </then>
+                <else>
+                    <payloadFactory media-type="json">
+                        <format>
+                            {
+                            "status": "ERROR",
+                            "message": "Validation Failed: Both 'name' and 'email' fields are required."
+                            }
+                        </format>
+                    </payloadFactory>
+                    <property name="HTTP_SC" scope="axis2" value="400"/>
+                    <property name="messageType" scope="axis2" value="application/json"/>
+                    <respond/>
+                </else>
+            </filter>
+        </then>
+    </filter>
+    <!-- ========================================== -->
+    <!-- ROUTE 3: GET /health                       -->
+    <!-- ========================================== -->
+    <filter xpath="get-property('httpMethod') = 'GET' and get-property('urlPostfix') = '/health'">
+        <then>
+            <payloadFactory media-type="json">
+                <format>
+                    {
+                    "status": "UP",
+                    "service": "TrainingDay6 API",
+                    "systemTime": "$1"
+                    }
+                </format>
+                <args>
+                    <arg evaluator="xml" expression="get-property('SYSTEM_TIME')"/>
+                </args>
+            </payloadFactory>
+            <property name="HTTP_SC" scope="axis2" value="200"/>
+            <property name="messageType" scope="axis2" value="application/json"/>
+            <respond/>
+        </then>
+    </filter>
+</sequence>
